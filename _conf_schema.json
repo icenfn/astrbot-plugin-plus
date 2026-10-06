@@ -1,0 +1,12 @@
+{
+  "enable_group_fanout": {
+    "description": "群聊消息扇出：向群内每位 AI 成员发送时使用独立会话上下文（独立 UMO）。",
+    "type": "bool",
+    "default": true
+  },
+  "max_ai_per_group": {
+    "description": "单个群聊允许的最大 AI 成员数量。",
+    "type": "int",
+    "default": 8
+  }
+}
