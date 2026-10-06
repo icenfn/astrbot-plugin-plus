@@ -42,7 +42,7 @@ from astrbot.api.web import error_response, json_response, request
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 def _now_ms() -> int:
