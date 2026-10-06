@@ -1,0 +1,2 @@
+# astrbot-plugin-plus 无额外第三方依赖，仅依赖 AstrBot 内置 API。
+# 保留此文件以满足 AstrBot 插件规范。
