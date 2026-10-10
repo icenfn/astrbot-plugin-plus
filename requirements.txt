@@ -1,2 +1,4 @@
-# astrbot-plugin-plus 无额外第三方依赖，仅依赖 AstrBot 内置 API。
-# 保留此文件以满足 AstrBot 插件规范。
+# astrbot-plugin-plus 依赖：Socket.io 服务端 + 异步 HTTP 客户端。
+# AstrBot 本身已内置 aiohttp / websockets，这里显式声明以保证独立可用。
+python-socketio>=5.11.0
+aiohttp>=3.9.0

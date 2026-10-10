@@ -1,3 +1,24 @@
+## 0.3.0
+
+### 新增
+
+- 🔌 **内置 Socket.io 服务端**：插件单独监听一个端口（默认 `6199`），对外只暴露这一个端口；客户端通过 `ws://<host>:<port>` 直接连接，无需再走 AstrBot 自身的 HTTP 接口。
+- 🔐 **API Key 鉴权**：握手阶段校验 `auth.token` 与配置项 `access_key`，不一致直接拒绝连接；留空表示不校验。
+- 🤖 **机器人列表桥接**：`bots:list` 事件代理 AstrBot 的机器人配置接口，返回 WebUI「创建机器人」页面的机器人列表。
+- 💬 **对话（Webchat 会话）管理**：提供 `dialogs:list` / `dialogs:create` / `dialogs:delete` / `dialogs:history` 事件，支持列出、新建、删除对话并拉取历史。
+- 🌊 **流式聊天转发**：`chat:send` 事件由服务端请求 AstrBot 的 SSE 接口，解析后以 `chat:delta` / `chat:done` / `chat:error` 增量回推给客户端。
+- 📇 **注册表事件**：提供 `registry:list` 及用户 / 群聊的增删事件，供客户端同步 AI 好友与群聊。
+
+### 变更
+
+- 🧩 **配置项调整**：新增 `access_key`、`listen_host`、`listen_port`、`astrbot_base_url`、`astrbot_api_key`、`enable_group_fanout`、`max_ai_per_group`。
+- 📦 **依赖声明**：`requirements.txt` 显式声明 `python-socketio` 与 `aiohttp`。
+- ♻️ **保留原有 Web API**：`/users`、`/groups` 等 HTTP 接口继续保留，便于兼容与调试。
+
+### 说明
+
+- 🔖 版本号提升至 `0.3.0`，与配套客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.3.0` 保持一致。
+- ⚠️ **升级提示**：需确保 AstrBot 环境可安装 `python-socketio`；安装依赖并重启后，Socket.io 服务端会在插件加载时自动启动。
 # Changelog
 
 所有值得注意的变更都会记录在此文件中。

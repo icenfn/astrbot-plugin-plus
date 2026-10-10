@@ -1,4 +1,29 @@
 {
+  "access_key": {
+    "description": "客户端连接本插件 Socket.io 服务端时使用的访问密钥（API key）。留空表示不校验。",
+    "type": "string",
+    "default": ""
+  },
+  "listen_host": {
+    "description": "Socket.io 服务端监听地址，默认 0.0.0.0（对外暴露的唯一端口）。",
+    "type": "string",
+    "default": "0.0.0.0"
+  },
+  "listen_port": {
+    "description": "Socket.io 服务端监听端口。客户端连接 ws://<host>:<port>。",
+    "type": "int",
+    "default": 6199
+  },
+  "astrbot_base_url": {
+    "description": "AstrBot 自身 HTTP 服务地址，插件据此拉取机器人列表与 Webchat 会话。",
+    "type": "string",
+    "default": "http://127.0.0.1:6185"
+  },
+  "astrbot_api_key": {
+    "description": "AstrBot OpenAPI / Dashboard 的 API Key，用于插件向 AstrBot 拉取数据。",
+    "type": "string",
+    "default": ""
+  },
   "enable_group_fanout": {
     "description": "群聊消息扇出：向群内每位 AI 成员发送时使用独立会话上下文（独立 UMO）。",
     "type": "bool",

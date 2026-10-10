@@ -1,7 +1,7 @@
 name: astrbot_plugin_plus
 display_name: AstrBot+
 desc: AstrBot+ 桌面 / 移动客户端的配套插件，提供 AI 用户（好友）与群聊的管理能力。
-version: 0.2.1
+version: 0.3.0
 author: icenfn
 repo: https://github.com/icenfn/astrbot-plugin-plus
 astrbot_version: ">=4.18"

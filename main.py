@@ -40,9 +40,14 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api.web import error_response, json_response, request
 
+try:  # AstrBot 通常以包形式加载插件；回退保证独立加载也能工作。
+    from .plus_socket import PlusSocketServer
+except ImportError:  # noqa: BLE001
+    from plus_socket import PlusSocketServer
+
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 
 def _now_ms() -> int:
@@ -71,6 +76,7 @@ class AstrBotPlusPlugin(Star):
         self.store_file: Path = self.data_dir / "registry.json"
         self._data: dict[str, list[dict[str, Any]]] = {"users": [], "groups": []}
         self._load()
+        self._socket: PlusSocketServer | None = None
 
         # ---- 注册插件 Web API（客户端据此做增删改查） -----------------------
         base = f"/{PLUGIN_NAME}"
@@ -81,6 +87,9 @@ class AstrBotPlusPlugin(Star):
         context.register_web_api(f"{base}/groups", self.list_groups, ["GET"], "列出群聊")
         context.register_web_api(f"{base}/groups", self.upsert_group, ["POST"], "新建 / 更新群聊")
         context.register_web_api(f"{base}/groups", self.delete_group, ["DELETE"], "删除群聊")
+
+        # ---- 启动 Socket.io 服务端（插件独立端口；对外只暴露这一个端口） ------
+        self._socket = self._start_socket()
 
         logger.info(
             f"[AstrBot+] 已加载，{len(self._data['users'])} 个 AI 用户 / "
@@ -107,6 +116,53 @@ class AstrBotPlusPlugin(Star):
             )
         except Exception as exc:  # noqa: BLE001
             logger.error(f"[AstrBot+] 写入注册表失败：{exc}")
+
+    # ------------------------------------------------------------ 插件配置读取
+    def _plugin_conf(self) -> dict[str, Any]:
+        """尽力从 AstrBot 读取本插件配置，兼容多种访问方式，失败则回退默认值。"""
+        candidates: list[Any] = []
+        getter = getattr(self.context, "get_config", None)
+        if callable(getter):
+            try:
+                candidates.append(getter())
+            except Exception:  # noqa: BLE001
+                pass
+        for attr in ("config", "plugin_config"):
+            val = getattr(self, attr, None)
+            if val is not None:
+                candidates.append(val)
+        for cfg in candidates:
+            data = self._extract_plugin_conf(cfg)
+            if data:
+                return data
+        return {}
+
+    @staticmethod
+    def _extract_plugin_conf(cfg: Any) -> dict[str, Any]:
+        if not isinstance(cfg, dict):
+            return {}
+        if isinstance(cfg.get(PLUGIN_NAME), dict):
+            return dict(cfg[PLUGIN_NAME])
+        plug = cfg.get("plugin")
+        if isinstance(plug, dict) and isinstance(plug.get(PLUGIN_NAME), dict):
+            return dict(plug[PLUGIN_NAME])
+        if {"listen_port", "access_key", "astrbot_base_url"} & set(cfg.keys()):
+            return dict(cfg)
+        return {}
+
+    def _start_socket(self) -> PlusSocketServer:
+        conf = self._plugin_conf()
+        server = PlusSocketServer(
+            host=str(conf.get("listen_host") or "0.0.0.0"),
+            port=int(conf.get("listen_port") or 6199),
+            access_key=str(conf.get("access_key") or ""),
+            astrbot_base_url=str(conf.get("astrbot_base_url") or "http://127.0.0.1:6185"),
+            astrbot_api_key=str(conf.get("astrbot_api_key") or ""),
+            registry=self._data,
+            save_cb=self._save,
+        )
+        server.start()
+        return server
 
     # -------------------------------------------------------------- 规范化字段
     @staticmethod
@@ -248,4 +304,6 @@ class AstrBotPlusPlugin(Star):
 
     async def terminate(self):
         self._save()
+        if getattr(self, "_socket", None) is not None:
+            self._socket.stop()
         logger.info("[AstrBot+] 插件已卸载，注册表已保存。")
