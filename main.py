@@ -45,9 +45,18 @@ try:  # AstrBot 通常以包形式加载插件；回退保证独立加载也能�
 except ImportError:  # noqa: BLE001
     from plus_socket import PlusSocketServer
 
+try:  # 导入平台适配器模块，触发 @register_platform_adapter 注册，
+    # 使 astrbot_plus 出现在 WebUI「创建机器人」的平台列表中。
+    from . import plus_platform  # noqa: F401
+except Exception:  # noqa: BLE001
+    try:
+        import plus_platform  # type: ignore  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
+
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 
 def _now_ms() -> int:

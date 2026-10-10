@@ -1,3 +1,20 @@
+## 0.3.1
+
+### 新增
+
+- 🧩 **注册为 AstrBot 消息平台适配器**：新增 `plus_platform.py`，通过 `@register_platform_adapter("astrbot_plus", ...)` 注册。现在可在 AstrBot WebUI「机器人 → 创建机器人」中选择 **AstrBot+** 平台，创建出的机器人拥有独立的 Provider / 人格与会话上下文。
+- 🔀 **事件桥接**：客户端经 Socket.io 发来的消息会被构造成 AstrBot 事件投入对话管线（`chat:send` → 事件 → 流式回复），回复再由 `send` / `send_streaming` 经 Socket.io 回推；未绑定适配器机器人时自动回退到原有 Webchat 直连逻辑。
+- 🖼️ **平台图标**：新增 `logo.png` 作为适配器图标。
+
+### 变更
+
+- 🔖 `metadata.yaml` 描述更新为「注册 astrbot_plus 消息平台」。
+- 🔗 **版本对齐**：插件版本 `0.3.1`，与配套客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.3.x` 大版本保持一致。
+
+### 说明
+
+- ⚠️ 使用「创建机器人」中的 AstrBot+ 平台前，请先在插件配置中设置 `access_key`，并在客户端「设置」中填入同一密钥与插件地址。
+
 ## 0.3.0
 
 ### 新增

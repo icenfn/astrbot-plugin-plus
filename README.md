@@ -3,7 +3,7 @@
 
   # astrbot-plugin-plus
 
-  **AstrBot+ 客户端的配套插件 — Socket.io 通信 + 机器人与对话管理**
+  **AstrBot+ 客户端的配套插件 — AstrBot 消息平台适配器（astrbot_plus）+ Socket.io 通信**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.18-4B8BBE)](https://astrbot.app)
@@ -15,16 +15,36 @@
 ## ✨ 简介
 
 本插件是开源跨平台客户端 [**AstrBot+**](https://github.com/icenfn/astrbot-plus) 的配套后端。
-它内置一个 **Socket.io 服务端**，在独立的端口上为客户端提供：
+它同时扮演两个角色：
 
-- 🤖 **机器人列表**：来自 AstrBot WebUI「创建机器人」页面；
+**1. Socket.io 服务端**（独立端口，对外只暴露这一个端口），为客户端提供：
+
+- 🤖 **机器人列表**：来自 AstrBot WebUI「创建机器人」页面的**消息平台适配器实例**；
 - 💬 **对话（Webchat 会话）**：列出 / 新建 / 删除 / 拉取历史；
 - 🌊 **流式聊天**：把客户端消息转发给 AstrBot，并把回复增量回推；
 - 📇 **AI 好友与群聊注册表**：本地维护、持久化。
 
+**2. AstrBot 消息平台适配器**（`astrbot_plus`）：注册后可在 AstrBot WebUI
+「**机器人 → 创建机器人**」中选择 **AstrBot+** 平台。每创建一个实例即得到一个
+拥有独立 Provider / 人格与会话上下文的机器人；客户端通过 Socket.io 与它对话。
+
 > 插件**单独监听一个端口**（默认 `6199`），对外只暴露这一个端口；客户端只需连接
 > `ws://<host>:<port>`，无需再走 AstrBot 自身的 HTTP 接口。Logo 沿用 astrbot-plus
-> 品牌图标，版本号与 astrbot-plus 保持一致。
+> 品牌图标，版本号与 astrbot-plus 大版本保持一致（当前 `0.3.x`）。
+
+## 🧩 平台适配器（astrbot_plus）
+
+| 项 | 值 |
+| --- | --- |
+| 适配器名 | `astrbot_plus` |
+| 显示名 | AstrBot+ |
+| 图标 | `logo.png` |
+| 流式消息 | 支持 |
+| 消息收发 | 经 Socket.io（`chat:send` → 事件 → `chat:delta` / `chat:done`） |
+
+配置步骤：安装并启用插件 → 打开 WebUI「机器人」页 → 点击「+ 创建机器人」→ 选择
+**AstrBot+** → 勾选启用并填写 `id`（任意，用于区分实例）→ 保存。随后在客户端
+「设置」中填写插件地址与 `access_key` 即可连接。
 
 ## 📦 安装
 

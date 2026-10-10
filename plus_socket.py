@@ -54,6 +54,14 @@ except Exception:  # noqa: BLE001
 
 from astrbot.api import logger
 
+try:  # 平台适配器：注册后 AstrBot WebUI 的「创建机器人」会出现 astrbot_plus
+    from . import plus_platform
+except Exception:  # noqa: BLE001
+    try:
+        import plus_platform  # type: ignore
+    except Exception:  # noqa: BLE001
+        plus_platform = None  # type: ignore[assignment]
+
 DEFAULT_PORT = 6199
 
 
@@ -77,6 +85,9 @@ class PlusSocketServer:
         self.astrbot_api_key = (astrbot_api_key or "").strip()
         self.registry = registry
         self._save = save_cb
+        # 入站会话 -> 出站路由（sid / reqId），用于把机器人回复回推到正确的客户端
+        self._routes: dict[str, dict[str, Any]] = {}
+        self._outbound_registered = False
 
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -115,6 +126,7 @@ class PlusSocketServer:
         loop = asyncio.new_event_loop()
         self._loop = loop
         asyncio.set_event_loop(loop)
+        self._register_outbound()
         try:
             self._runner = web.AppRunner(self._app)
             loop.run_until_complete(self._runner.setup())
@@ -195,7 +207,17 @@ class PlusSocketServer:
         @sio.on("chat:send")
         async def _chat_send(sid, data=None):  # noqa: ANN001
             data = data or {}
-            self.sio.start_background_task(self._run_chat, sid, data)
+            session_id = str(data.get("sessionId") or data.get("session_id") or data.get("id") or "")
+            bot_id = str(data.get("botId") or data.get("bot_id") or "")
+            req_id = str(data.get("reqId") or "")
+            if session_id:
+                self._routes[session_id] = {"sid": sid, "reqId": req_id}
+            # 若客户端绑定的是 AstrBot 平台适配器机器人，则交给 AstrBot 平台管线处理；
+            # 否则回退到直连 AstrBot Webchat HTTP 接口的原有逻辑。
+            if bot_id and plus_platform is not None and plus_platform.has_adapters():
+                self.sio.start_background_task(self._dispatch_incoming, sid, session_id, data)
+            else:
+                self.sio.start_background_task(self._run_chat, sid, data)
             return {"accepted": True}
 
         @sio.on("registry:list")
@@ -217,6 +239,58 @@ class PlusSocketServer:
         @sio.on("registry:group:delete")
         async def _group_delete(sid, data=None):  # noqa: ANN001
             return self._delete_group((data or {}).get("id"))
+
+    # ------------------------------------------------------ 平台适配器桥接 / 出站
+    def _register_outbound(self) -> None:
+        if plus_platform is not None and not self._outbound_registered:
+            plus_platform.set_outbound(self._outbound)
+            self._outbound_registered = True
+
+    def _outbound(self, session_id: str, text: str, meta: dict[str, Any]) -> None:
+        """平台适配器（AstrBot 事件循环线程）回调，切回 Socket.io 事件循环。"""
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self._emit_out(session_id, text, meta), loop)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 出站调度失败：{exc}")
+
+    async def _emit_out(self, session_id: str, text: str, meta: dict[str, Any]) -> None:
+        route = self._routes.get(session_id)
+        if not route:
+            return
+        sid = route.get("sid")
+        req_id = route.get("reqId", "")
+        try:
+            if meta.get("done"):
+                await self.sio.emit(
+                    "chat:done",
+                    {"reqId": req_id, "sessionId": session_id, "text": text},
+                    to=sid,
+                )
+                self._routes.pop(session_id, None)
+            elif text:
+                await self.sio.emit(
+                    "chat:delta", {"reqId": req_id, "delta": text}, to=sid
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 出站推送失败：{exc}")
+
+    async def _dispatch_incoming(self, sid: str, session_id: str, data: dict[str, Any]) -> None:
+        text = str(data.get("text") or data.get("message") or "")
+        bot_id = str(data.get("botId") or data.get("bot_id") or "")
+        try:
+            ok = await plus_platform.dispatch_incoming(  # type: ignore[union-attr]
+                bot_id or plus_platform.ADAPTER_NAME,  # type: ignore[union-attr]
+                session_id,
+                text,
+            )
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            logger.warning(f"[AstrBot+] 平台适配器派发失败，回退 Webchat：{exc}")
+        if not ok:
+            await self._run_chat(sid, data)
 
     # ------------------------------------------------------------------ 工具
     async def _safe(self, fn: Callable[[], Any]) -> dict[str, Any]:
