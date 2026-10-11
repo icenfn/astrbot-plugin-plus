@@ -1,14 +1,7 @@
 name: astrbot_plugin_plus
 display_name: AstrBot+
-desc: AstrBot+ 桌面 / 移动客户端的配套插件：注册 astrbot_plus 消息平台（Socket.io 单端口），并提供机器人与对话管理能力。
-version: 0.3.1
+desc: AstrBot+ 桌面 / 移动客户端的配套插件：注册 astrbot_plus 消息平台（Socket.io 单端口），提供 Agent（机器人）列表与流式对话。
+version: 0.3.2
 author: icenfn
 repo: https://github.com/icenfn/astrbot-plugin-plus
 astrbot_version: ">=4.18"
-support_platforms:
-  - webchat
-  - aiocqhttp
-  - qq_official
-  - telegram
-  - discord
-  - lark

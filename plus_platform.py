@@ -14,7 +14,7 @@ WebUI「机器人 → 创建机器人」的平台选择列表中。
 * 机器人产生的回复，由 :class:`AstrBotPlusEvent.send` / ``send_streaming``
   交给 Socket.io 层回推给客户端。
 
-这样每个机器人都拥有独立配置与会话上下文，与「AI 好友」的语义一致。
+这样每个机器人都拥有独立配置与会话上下文，与「Agent」的语义一致。
 """
 
 from __future__ import annotations
@@ -262,7 +262,7 @@ async def dispatch_incoming(
         return False
     loop = _MAIN_LOOP
     if loop is None or not loop.is_running():
-        logger.warning("[AstrBot+] 主事件循环不可用，回退到 Webchat。")
+        logger.warning("[AstrBot+] 主事件循环不可用，无法把消息交给机器人处理。")
         return False
     try:
         fut = asyncio.run_coroutine_threadsafe(

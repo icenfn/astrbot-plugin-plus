@@ -4,30 +4,24 @@
 
 * 插件单独监听一个端口（默认 ``6199``），对外 **只暴露这一个端口**；AstrBot 的
   WebUI / 主服务端口保持不变。客户端只需连接 ``ws://<host>:<port>``。
-* 全流程走 Socket.io：机器人列表、对话（Webchat 会话）列表 / 新建 / 删除、
-  历史记录、以及流式聊天，全部通过事件完成，不再依赖插件 HTTP Web API。
+* 全流程走 Socket.io：**Agent（机器人）列表**与**流式对话**都通过事件完成。
 * 服务端拉取 + 客户端本地缓存：本服务端负责调用 AstrBot 自身的 HTTP API
-  （``/api/config/platform/list``、``/api/v1/chat/...``）并把结果转发给客户端。
+  （``/api/config/platform/list``）读取「创建机器人」页面的机器人列表。
 * 鉴权使用 API key：客户端在握手 ``auth`` 中携带 ``token``，与服务端配置的
   ``access_key`` 一致才允许连接。
 
-事件一览（客户端 → 服务端，除 ``chat:send`` 外均为「带 ack 的请求」）：
+事件一览（客户端 → 服务端）：
 
 =========================================  ==================================
 事件                                        说明
 =========================================  ==================================
 ping                                      心跳，返回 {pong: true}
 config                                    返回服务端能力 / 默认配置
-bots:list                                 机器人列表（WebUI「创建机器人」页）
-dialogs:list                              对话（Webchat 会话）列表
-dialogs:create                            新建对话（绑定到一个机器人）
-dialogs:delete                            删除对话
-dialogs:history                           拉取某个对话的历史消息
+bots:list                                 机器人（Agent）列表（WebUI「创建机器人」页）
 chat:send                                 发送消息（服务端流式回推 chat:delta / chat:done）
-registry:list                             列出本地注册表（users / groups）
-registry:user:upsert / user:delete        维护 AI 好友
-registry:group:upsert / group:delete      维护群聊（保留，暂不细化）
 =========================================  ==================================
+
+服务端 → 客户端：``chat:session`` / ``chat:delta`` / ``chat:done`` / ``chat:error``。
 """
 
 from __future__ import annotations
@@ -75,16 +69,12 @@ class PlusSocketServer:
         access_key: str,
         astrbot_base_url: str,
         astrbot_api_key: str,
-        registry: dict[str, list[dict[str, Any]]],
-        save_cb: Callable[[], None],
     ) -> None:
         self.host = host or "0.0.0.0"
         self.port = int(port or DEFAULT_PORT)
         self.access_key = (access_key or "").strip()
         self.base_url = (astrbot_base_url or "http://127.0.0.1:6185").rstrip("/")
         self.astrbot_api_key = (astrbot_api_key or "").strip()
-        self.registry = registry
-        self._save = save_cb
         # 入站会话 -> 出站路由（sid / reqId），用于把机器人回复回推到正确的客户端
         self._routes: dict[str, dict[str, Any]] = {}
         self._outbound_registered = False
@@ -94,12 +84,16 @@ class PlusSocketServer:
         self._runner: Any = None
         self._available = socketio is not None and web is not None and aiohttp is not None
 
-        self.sio = socketio.AsyncServer(
-            async_mode="aiohttp",
-            cors_allowed_origins="*",
-            logger=False,
-            engineio_logger=False,
-        ) if self._available else None
+        self.sio = (
+            socketio.AsyncServer(
+                async_mode="aiohttp",
+                cors_allowed_origins="*",
+                logger=False,
+                engineio_logger=False,
+            )
+            if self._available
+            else None
+        )
         self._app = web.Application() if self._available else None
         if self._available:
             self.sio.attach(self._app)
@@ -119,7 +113,9 @@ class PlusSocketServer:
             return
         if self._thread and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run, name="astrbot-plus-socket", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="astrbot-plus-socket", daemon=True
+        )
         self._thread.start()
 
     def _run(self) -> None:
@@ -157,7 +153,9 @@ class PlusSocketServer:
         async def connect(sid, environ, auth):  # noqa: ANN001
             token = ""
             if isinstance(auth, dict):
-                token = str(auth.get("token") or auth.get("apiKey") or auth.get("api_key") or "")
+                token = str(
+                    auth.get("token") or auth.get("apiKey") or auth.get("api_key") or ""
+                )
             if self.access_key and token != self.access_key:
                 logger.warning("[AstrBot+] 客户端鉴权失败，已拒绝连接。")
                 raise socketio.exceptions.ConnectionRefusedError("invalid access key")
@@ -165,7 +163,9 @@ class PlusSocketServer:
 
         @sio.event
         async def disconnect(sid, reason=None):  # noqa: ANN001
-            logger.info(f"[AstrBot+] 客户端已断开：{sid}")
+            for key in [k for k, v in self._routes.items() if v.get("sid") == sid]:
+                self._routes.pop(key, None)
+            logger.info(f"[AstrBot+] 客户端已断开：{sid}（reason={reason}）")
 
         @sio.on("ping")
         async def _ping(sid, data=None):  # noqa: ANN001
@@ -183,62 +183,45 @@ class PlusSocketServer:
         async def _bots_list(sid, data=None):  # noqa: ANN001
             return await self._safe(self._fetch_bots)
 
-        @sio.on("dialogs:list")
-        async def _dialogs_list(sid, data=None):  # noqa: ANN001
-            return await self._safe(self._fetch_dialogs)
-
-        @sio.on("dialogs:create")
-        async def _dialogs_create(sid, data=None):  # noqa: ANN001
-            data = data or {}
-            return await self._safe(lambda: self._create_dialog(data))
-
-        @sio.on("dialogs:delete")
-        async def _dialogs_delete(sid, data=None):  # noqa: ANN001
-            data = data or {}
-            sid_ = str(data.get("id") or data.get("sessionId") or "")
-            return await self._safe(lambda: self._delete_dialog(sid_))
-
-        @sio.on("dialogs:history")
-        async def _dialogs_history(sid, data=None):  # noqa: ANN001
-            data = data or {}
-            sid_ = str(data.get("id") or data.get("sessionId") or "")
-            return await self._safe(lambda: self._dialog_history(sid_))
-
         @sio.on("chat:send")
         async def _chat_send(sid, data=None):  # noqa: ANN001
             data = data or {}
-            session_id = str(data.get("sessionId") or data.get("session_id") or data.get("id") or "")
-            bot_id = str(data.get("botId") or data.get("bot_id") or "")
             req_id = str(data.get("reqId") or "")
-            if session_id:
-                self._routes[session_id] = {"sid": sid, "reqId": req_id}
-            # 若客户端绑定的是 AstrBot 平台适配器机器人，则交给 AstrBot 平台管线处理；
-            # 否则回退到直连 AstrBot Webchat HTTP 接口的原有逻辑。
-            if bot_id and plus_platform is not None and plus_platform.has_adapters():
-                self.sio.start_background_task(self._dispatch_incoming, sid, session_id, data)
-            else:
-                self.sio.start_background_task(self._run_chat, sid, data)
+            bot_id = str(data.get("botId") or data.get("bot_id") or "")
+            session_id = str(
+                data.get("sessionId") or data.get("session_id") or ""
+            ).strip() or f"plus_{bot_id or sid}"
+
+            if plus_platform is None or not plus_platform.has_adapters():
+                logger.warning("[AstrBot+] 尚无 astrbot_plus 平台适配器实例，无法处理聊天。")
+                await self.sio.emit(
+                    "chat:error",
+                    {
+                        "reqId": req_id,
+                        "sessionId": session_id,
+                        "message": "尚未创建 AstrBot+ 机器人，请先在 WebUI「创建机器人」中添加。",
+                    },
+                    to=sid,
+                )
+                return {"accepted": False}
+
+            self._routes[session_id] = {"sid": sid, "reqId": req_id}
+            logger.info(
+                f"[AstrBot+] 收到聊天请求 sid={sid} bot={bot_id or '-'} session={session_id}"
+            )
+            # 先告知客户端本次使用的稳定 session 标识，便于其复用会话上下文。
+            await self.sio.emit(
+                "chat:session",
+                {"reqId": req_id, "sessionId": session_id},
+                to=sid,
+            )
+            self.sio.start_background_task(
+                self._dispatch_incoming,
+                sid,
+                session_id,
+                {**data, "sessionId": session_id, "botId": bot_id},
+            )
             return {"accepted": True}
-
-        @sio.on("registry:list")
-        async def _registry_list(sid, data=None):  # noqa: ANN001
-            return {"status": "ok", "data": self.registry}
-
-        @sio.on("registry:user:upsert")
-        async def _user_upsert(sid, data=None):  # noqa: ANN001
-            return self._upsert_user(data or {})
-
-        @sio.on("registry:user:delete")
-        async def _user_delete(sid, data=None):  # noqa: ANN001
-            return self._delete_user((data or {}).get("id"))
-
-        @sio.on("registry:group:upsert")
-        async def _group_upsert(sid, data=None):  # noqa: ANN001
-            return self._upsert_group(data or {})
-
-        @sio.on("registry:group:delete")
-        async def _group_delete(sid, data=None):  # noqa: ANN001
-            return self._delete_group((data or {}).get("id"))
 
     # ------------------------------------------------------ 平台适配器桥接 / 出站
     def _register_outbound(self) -> None:
@@ -277,9 +260,12 @@ class PlusSocketServer:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[AstrBot+] 出站推送失败：{exc}")
 
-    async def _dispatch_incoming(self, sid: str, session_id: str, data: dict[str, Any]) -> None:
+    async def _dispatch_incoming(
+        self, sid: str, session_id: str, data: dict[str, Any]
+    ) -> None:
         text = str(data.get("text") or data.get("message") or "")
         bot_id = str(data.get("botId") or data.get("bot_id") or "")
+        req_id = str(data.get("reqId") or "")
         try:
             ok = await plus_platform.dispatch_incoming(  # type: ignore[union-attr]
                 bot_id or plus_platform.ADAPTER_NAME,  # type: ignore[union-attr]
@@ -288,9 +274,17 @@ class PlusSocketServer:
             )
         except Exception as exc:  # noqa: BLE001
             ok = False
-            logger.warning(f"[AstrBot+] 平台适配器派发失败，回退 Webchat：{exc}")
+            logger.warning(f"[AstrBot+] 平台适配器派发失败：{exc}")
         if not ok:
-            await self._run_chat(sid, data)
+            await self.sio.emit(
+                "chat:error",
+                {
+                    "reqId": req_id,
+                    "sessionId": session_id,
+                    "message": "无法将消息交给机器人处理。",
+                },
+                to=sid,
+            )
 
     # ------------------------------------------------------------------ 工具
     async def _safe(self, fn: Callable[[], Any]) -> dict[str, Any]:
@@ -324,7 +318,10 @@ class PlusSocketServer:
         """机器人列表：WebUI「创建机器人」页面中的平台配置。"""
         # 新版：GET /api/config/bots；兼容旧版：GET /api/config/platform/list
         for path, extractor in (
-            ("/api/config/platform/list", lambda b: (b.get("data") or {}).get("platforms")),
+            (
+                "/api/config/platform/list",
+                lambda b: (b.get("data") or {}).get("platforms"),
+            ),
             ("/api/config/bots", lambda b: (b.get("data") or {}).get("bots")),
         ):
             try:
@@ -333,7 +330,10 @@ class PlusSocketServer:
                 continue
             items = extractor(body if isinstance(body, dict) else {})
             if items:
-                return [self._normalize_bot(b) for b in items]
+                bots = [self._normalize_bot(b) for b in items]
+                # 优先只展示由 AstrBot+ 平台创建的机器人；若一个都没有，则回退展示全部。
+                plus_bots = [b for b in bots if "astrbot_plus" in (b.get("platform") or "")]
+                return plus_bots or bots
         return []
 
     @staticmethod
@@ -342,268 +342,22 @@ class PlusSocketServer:
             return {"id": str(raw), "name": str(raw)}
         cfg = raw.get("config") if isinstance(raw.get("config"), dict) else {}
         bot_id = str(raw.get("id") or raw.get("bot_id") or cfg.get("id") or "")
-        name = (
-            raw.get("name")
-            or cfg.get("name")
-            or cfg.get("platform")
-            or bot_id
-        )
+        name = raw.get("name") or cfg.get("name") or cfg.get("platform") or bot_id
         return {
             "id": bot_id,
             "name": str(name),
-            "platform": str(raw.get("type") or raw.get("platform") or cfg.get("type") or ""),
+            "platform": str(
+                raw.get("type") or raw.get("platform") or cfg.get("type") or ""
+            ),
             "enabled": bool(raw.get("enabled", True)),
             "raw": raw,
         }
 
-    async def _fetch_dialogs(self) -> list[dict[str, Any]]:
-        """对话列表：Webchat 会话。"""
-        body = await self._get_json(
-            "/api/v1/chat/sessions", {"platform_id": "webchat"}
-        )
-        data = body.get("data") if isinstance(body, dict) else body
-        items = data if isinstance(data, list) else (data or {}).get("sessions", [])
-        return [self._normalize_dialog(s) for s in items or []]
-
-    @staticmethod
-    def _normalize_dialog(raw: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(raw, dict):
-            return {"id": str(raw), "title": str(raw)}
-        sid = str(raw.get("session_id") or raw.get("id") or raw.get("cid") or "")
-        return {
-            "id": sid,
-            "title": str(raw.get("title") or raw.get("display_name") or "新对话"),
-            "botId": str(raw.get("bot_id") or raw.get("botId") or ""),
-            "personaId": raw.get("persona_id") or None,
-            "createdAt": raw.get("created_at"),
-            "updatedAt": raw.get("updated_at"),
-            "raw": raw,
-        }
-
-    async def _create_dialog(self, data: dict[str, Any]) -> dict[str, Any]:
-        params = {"platform_id": "webchat"}
-        bot_id = str(data.get("botId") or data.get("bot_id") or "")
-        if bot_id:
-            params["bot_id"] = bot_id
-        body = await self._get_json("/api/v1/chat/sessions/new", params)
-        payload = body.get("data") if isinstance(body, dict) else body
-        if isinstance(payload, dict):
-            dialog = self._normalize_dialog(payload)
-            dialog["botId"] = dialog.get("botId") or bot_id
-            return dialog
-        return {"id": "", "title": "新对话", "botId": bot_id}
-
-    async def _delete_dialog(self, session_id: str) -> dict[str, Any]:
-        if not session_id:
-            raise ValueError("缺少会话 id")
-        url = f"{self.base_url}/api/v1/chat/sessions/{session_id}"
-        async with aiohttp.ClientSession() as session:
-            async with session.delete(url, headers=self._headers()) as resp:
-                await resp.text()
-        return {"deleted": True, "id": session_id}
-
-    async def _dialog_history(self, session_id: str) -> dict[str, Any]:
-        if not session_id:
-            raise ValueError("缺少会话 id")
-        body = await self._get_json(
-            f"/api/v1/chat/sessions/{session_id}",
-            {"page": 1, "page_size": 1000},
-        )
-        data = body.get("data") if isinstance(body, dict) else body
-        history: Any = []
-        if isinstance(data, dict):
-            history = data.get("history") or data.get("messages") or []
-        elif isinstance(data, list):
-            history = data
-        if isinstance(history, str):
-            try:
-                history = json.loads(history)
-            except Exception:  # noqa: BLE001
-                history = []
-        return {"id": session_id, "messages": history}
-
-    @staticmethod
-    def _event_text(event: dict[str, Any]) -> str:
-        """从 AstrBot 的 SSE 事件中提取文本增量。"""
-        data = event.get("data")
-        if isinstance(data, str):
-            return data
-        if isinstance(data, dict):
-            for key in ("text", "content", "delta"):
-                if isinstance(data.get(key), str):
-                    return data[key]
-        for key in ("text", "message", "content"):
-            if isinstance(event.get(key), str):
-                return event[key]
-        return ""
-
-    async def _run_chat(self, sid: str, data: dict[str, Any]) -> None:
-        """执行一次流式聊天：解析 AstrBot SSE，仅把文本增量回推给客户端。"""
-        session_id = str(data.get("sessionId") or data.get("session_id") or data.get("id") or "")
-        text = str(data.get("text") or data.get("message") or "")
-        bot_id = str(data.get("botId") or data.get("bot_id") or "")
-        req_id = str(data.get("reqId") or "")
-        payload: dict[str, Any] = {
-            "session_id": session_id,
-            "message": text,
-            "platform_id": "webchat",
-        }
-        if bot_id:
-            payload["bot_id"] = bot_id
-        full = ""
-        streamed = False
-        try:
-            url = f"{self.base_url}/api/v1/chat"
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=payload, headers=self._headers()
-                ) as resp:
-                    resp.raise_for_status()
-                    async for raw_line in resp.content:
-                        line = raw_line.decode("utf-8", "ignore").strip()
-                        if not line or not line.startswith("data:"):
-                            continue
-                        chunk = line[5:].strip()
-                        if not chunk or chunk == "[DONE]":
-                            continue
-                        try:
-                            event = json.loads(chunk)
-                        except Exception:  # noqa: BLE001
-                            event = None
-                        if isinstance(event, dict):
-                            etype = str(event.get("type") or event.get("t") or "")
-                            if etype in ("session_id", "session_bound") and event.get("session_id"):
-                                await self.sio.emit(
-                                    "chat:session",
-                                    {"reqId": req_id, "sessionId": event["session_id"]},
-                                    to=sid,
-                                )
-                            elif etype == "plain":
-                                piece = self._event_text(event)
-                                if piece:
-                                    full += piece
-                                    streamed = True
-                                    await self.sio.emit(
-                                        "chat:delta", {"reqId": req_id, "delta": piece}, to=sid
-                                    )
-                            elif etype == "complete":
-                                piece = self._event_text(event)
-                                if piece and not streamed:
-                                    full = piece
-                                    streamed = True
-                                    await self.sio.emit(
-                                        "chat:delta", {"reqId": req_id, "delta": piece}, to=sid
-                                    )
-                            elif etype == "error":
-                                raise RuntimeError(self._event_text(event) or "聊天出错")
-                        else:
-                            full += chunk
-                            streamed = True
-                            await self.sio.emit(
-                                "chat:delta", {"reqId": req_id, "delta": chunk}, to=sid
-                            )
-            await self.sio.emit(
-                "chat:done",
-                {"reqId": req_id, "sessionId": session_id, "text": full},
-                to=sid,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[AstrBot+] 聊天转发失败：{exc}")
-            await self.sio.emit(
-                "chat:error",
-                {"reqId": req_id, "sessionId": session_id, "message": str(exc)},
-                to=sid,
-            )
-
-    # ------------------------------------------------------------------ 注册表（AI 好友 / 群聊）
-    def _upsert_user(self, payload: dict[str, Any]) -> dict[str, Any]:
-        name = str(payload.get("name") or "").strip()
-        if not name:
-            raise ValueError("name 不能为空")
-        uid = str(payload.get("id") or "").strip() or f"f_{int(asyncio.get_event_loop().time()*1000)}"
-        user = {
-            "id": uid,
-            "name": name,
-            "configId": payload.get("configId") or None,
-            "personaId": payload.get("personaId") or None,
-            "avatarSeed": str(payload.get("avatarSeed") or name),
-            "createdAt": int(payload.get("createdAt") or 0) or self._now_ms(),
-        }
-        users = self.registry.setdefault("users", [])
-        for idx, existing in enumerate(users):
-            if existing.get("id") == uid:
-                user["createdAt"] = int(existing.get("createdAt") or user["createdAt"])
-                users[idx] = user
-                break
-        else:
-            users.append(user)
-        self._save()
-        return {"status": "ok", "data": user}
-
-    def _delete_user(self, uid: Any) -> dict[str, Any]:
-        uid = str(uid or "")
-        if not uid:
-            raise ValueError("缺少 id")
-        self.registry["users"] = [u for u in self.registry.get("users", []) if u.get("id") != uid]
-        for grp in self.registry.get("groups", []):
-            grp["memberIds"] = [m for m in grp.get("memberIds", []) if m != uid]
-        self.registry["groups"] = [
-            g for g in self.registry.get("groups", []) if len(g.get("memberIds", [])) >= 2
-        ]
-        self._save()
-        return {"status": "ok", "data": {"id": uid}}
-
-    def _upsert_group(self, payload: dict[str, Any]) -> dict[str, Any]:
-        name = str(payload.get("name") or "").strip()
-        if not name:
-            raise ValueError("群名称不能为空")
-        member_ids = payload.get("memberIds") or []
-        valid = {u["id"] for u in self.registry.get("users", [])}
-        seen: list[str] = []
-        for mid in member_ids:
-            mid = str(mid)
-            if mid in valid and mid not in seen:
-                seen.append(mid)
-        if len(seen) < 2:
-            raise ValueError("群聊至少需要 2 个有效的 AI 用户")
-        gid = str(payload.get("id") or "").strip() or f"g_{self._now_ms()}"
-        group = {
-            "id": gid,
-            "name": name,
-            "memberIds": seen,
-            "avatarSeed": str(payload.get("avatarSeed") or name),
-            "createdAt": int(payload.get("createdAt") or 0) or self._now_ms(),
-        }
-        groups = self.registry.setdefault("groups", [])
-        for idx, existing in enumerate(groups):
-            if existing.get("id") == gid:
-                group["createdAt"] = int(existing.get("createdAt") or group["createdAt"])
-                groups[idx] = group
-                break
-        else:
-            groups.append(group)
-        self._save()
-        return {"status": "ok", "data": group}
-
-    def _delete_group(self, gid: Any) -> dict[str, Any]:
-        gid = str(gid or "")
-        if not gid:
-            raise ValueError("缺少 id")
-        self.registry["groups"] = [g for g in self.registry.get("groups", []) if g.get("id") != gid]
-        self._save()
-        return {"status": "ok", "data": {"id": gid}}
-
     # ------------------------------------------------------------------ 杂项
-    @staticmethod
-    def _now_ms() -> int:
-        import time
-
-        return int(time.time() * 1000)
-
     def _plugin_version(self) -> str:
         try:
             from . import __version__  # type: ignore
 
             return __version__
         except Exception:  # noqa: BLE001
-            return "0.3.0"
+            return "0.3.2"

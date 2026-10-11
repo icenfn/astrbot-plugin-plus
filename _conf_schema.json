@@ -15,7 +15,7 @@
     "default": 6199
   },
   "astrbot_base_url": {
-    "description": "AstrBot 自身 HTTP 服务地址，插件据此拉取机器人列表与 Webchat 会话。",
+    "description": "AstrBot 自身 HTTP 服务地址，插件据此拉取机器人（Agent）列表。",
     "type": "string",
     "default": "http://127.0.0.1:6185"
   },
@@ -23,15 +23,5 @@
     "description": "AstrBot OpenAPI / Dashboard 的 API Key，用于插件向 AstrBot 拉取数据。",
     "type": "string",
     "default": ""
-  },
-  "enable_group_fanout": {
-    "description": "群聊消息扇出：向群内每位 AI 成员发送时使用独立会话上下文（独立 UMO）。",
-    "type": "bool",
-    "default": true
-  },
-  "max_ai_per_group": {
-    "description": "单个群聊允许的最大 AI 成员数量。",
-    "type": "int",
-    "default": 8
   }
 }
