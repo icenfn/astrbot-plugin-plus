@@ -1,57 +1,31 @@
 # AstrBot+ 配套插件（astrbot-plugin-plus）
 
-`astrbot-plugin-plus` 是 [AstrBot+](https://github.com/icenfn/astrbot-plus) 桌面 / 移动客户端的**配套插件**。
+把 [AstrBot+](https://github.com/icenfn/astrbot-plus) 客户端接入 AstrBot 的配套插件：
 
-它做两件事：
-
-1. **注册平台适配器 `astrbot_plus`**：把 AstrBot+ 客户端注册为 AstrBot 的一个消息平台，使其出现在 AstrBot WebUI 的「机器人 → 创建机器人」平台选择列表中；
-2. **内置 Socket.io 服务端（单端口）**：客户端通过一个独立端口（默认 `6199`）连接，完成 **Agent（机器人）列表**拉取与**流式对话**。
-
-> 设计上，插件只对外暴露 Socket.io 这一个端口，AstrBot 自身的 WebUI / 主服务端口保持不变。
-
-## 能力
-
-- 🤖 **Agent**：即 AstrBot WebUI「创建机器人」页面创建的机器人。插件直接读取本进程内已实例化的平台适配器，无需回调 AstrBot HTTP 服务。
-- 💬 **流式对话**：消息经插件投入 AstrBot 事件管线，回复以增量（`chat:delta`）流式回推，结束时 `chat:done`。
-- 🏥 **健康检查页**：浏览器访问 `http://<host>:6199` 会显示服务端状态页（运行状态 / 连接地址 / 已加载 Agent），不再返回 404。
-- 🪵 **规范日志**：关键路径（连接 / 断开 / 派发 / 出站 / 异常）均有 `logger` 输出，便于排查。
+- 🔌 注册平台适配器 `astrbot_plus`，出现在 WebUI「机器人 → 创建机器人」平台列表；
+- 🌐 内置 Socket.io 服务端（单端口，默认 `6199`），客户端经它拉取 **Agent 列表**并进行**流式对话**；
+- 🏥 浏览器访问 `http://<host>:6199` 显示服务状态页（便于确认插件存活）。
 
 ## 安装
 
-1. 在 AstrBot「插件市场」安装本插件，或把本仓库放入 AstrBot 的 `data/plugins/` 目录；
-2. 重启 AstrBot，确保依赖 `python-socketio` 与 `aiohttp` 已安装（见 `requirements.txt`）；
-3. 如需修改端口，在插件配置中设置 `listen_port`（默认 `6199`）。
+1. 在 AstrBot「插件市场」安装本插件，或将本仓库放入 `data/plugins/` 后重启；
+2. 客户端「设置 → 连接」填入 `http://<服务器IP>:6199` 即可（无需密钥）。
 
-> **WebUI 平台 logo 说明**：自 v0.4.1 起，插件内置了对 AstrBot「文件令牌」机制已知缺陷
-> （上游 AstrBot #10294，2026-10-02 修复）的兼容处理，「创建机器人」平台选择器中的 logo
-> 可稳定显示。若之前安装过旧版本插件且 logo 显示 404，请升级插件、重启 AstrBot 后强制
-> 刷新页面（Ctrl+F5）。
-
-## 配置（`_conf_schema.json`）
+## 配置
 
 | 配置项 | 说明 | 默认 |
 | --- | --- | --- |
-| `listen_host` | Socket.io 服务端监听地址 | `0.0.0.0` |
-| `listen_port` | Socket.io 服务端监听端口 | `6199` |
-
-> 自 v0.4.0 起，插件不再要求访问密钥，也不再依赖 AstrBot OpenAPI（`astrbot_base_url` / `astrbot_api_key` 已移除）。
+| `listen_host` | Socket.io 监听地址 | `0.0.0.0` |
+| `listen_port` | Socket.io 监听端口 | `6199` |
 
 ## Socket.io 事件
 
-客户端 → 服务端：
-
-| 事件 | 说明 |
-| --- | --- |
-| `ping` | 心跳，返回 `{pong: true}` |
-| `config` | 返回服务端能力 / 默认配置 |
-| `bots:list` | 机器人（Agent）列表 |
-| `chat:send` | 发送消息（携带 `text` / `botId` / `sessionId` / `reqId`） |
-
+客户端 → 服务端：`ping` / `config` / `bots:list` / `chat:send`；
 服务端 → 客户端：`chat:session` / `chat:delta` / `chat:done` / `chat:error`。
 
 ## 指令
 
-- `/plus`：在聊天中查看插件状态。
+- `/plus`：聊天中查看插件状态。
 
 ## 许可
 
