@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.0
+
+### 变更
+
+- 🏥 **健康检查页**：浏览器直接访问插件端口（如 `http://<host>:6199`）不再返回 `404: Not Found`，
+  而是展示一张服务端状态页（运行状态 / 连接地址 / 已加载 Agent 列表），便于确认插件存活。
+- 🔓 **移除访问密钥**：简化连接体验，客户端连接插件不再需要 `access_key`；
+  平台适配器的默认配置模板同步移除该字段。请确保端口仅在内网 / 可信网络中暴露。
+- 🧩 **机器人列表改走内部通道**：`bots:list` 现在直接读取本进程内已实例化的
+  `astrbot_plus` 平台适配器，不再回调 AstrBot HTTP 服务。
+- ⚙️ **移除 AstrBot OpenAPI 配置项**：插件与 AstrBot 同进程运行，无需再配置
+  `astrbot_base_url` / `astrbot_api_key`。配置项精简为 `listen_host` / `listen_port`。
+
+### 说明
+
+- 🔖 版本号提升至 `0.4.0`；配合客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.4.x`。
+
 ## v0.3.2
 
 ### 变更

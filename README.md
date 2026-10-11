@@ -11,16 +11,16 @@
 
 ## 能力
 
-- 🤖 **Agent**：即 AstrBot WebUI「创建机器人」页面创建的机器人。客户端据此展示列表并发起对话。
+- 🤖 **Agent**：即 AstrBot WebUI「创建机器人」页面创建的机器人。插件直接读取本进程内已实例化的平台适配器，无需回调 AstrBot HTTP 服务。
 - 💬 **流式对话**：消息经插件投入 AstrBot 事件管线，回复以增量（`chat:delta`）流式回推，结束时 `chat:done`。
-- 🔐 **访问密钥鉴权**：客户端在 Socket.io 握手 `auth.token` 中携带密钥，与插件配置的 `access_key` 一致才允许接入。
-- 🪵 **规范日志**：关键路径（连接 / 鉴权 / 断开 / 派发 / 出站 / 异常）均有 `logger` 输出，便于排查。
+- 🏥 **健康检查页**：浏览器访问 `http://<host>:6199` 会显示服务端状态页（运行状态 / 连接地址 / 已加载 Agent），不再返回 404。
+- 🪵 **规范日志**：关键路径（连接 / 断开 / 派发 / 出站 / 异常）均有 `logger` 输出，便于排查。
 
 ## 安装
 
 1. 在 AstrBot「插件市场」安装本插件，或把本仓库放入 AstrBot 的 `data/plugins/` 目录；
 2. 重启 AstrBot，确保依赖 `python-socketio` 与 `aiohttp` 已安装（见 `requirements.txt`）；
-3. 在插件配置中设置 `listen_port`（默认 `6199`）与可选的 `access_key`。
+3. 如需修改端口，在插件配置中设置 `listen_port`（默认 `6199`）。
 
 ## 配置（`_conf_schema.json`）
 
@@ -28,9 +28,8 @@
 | --- | --- | --- |
 | `listen_host` | Socket.io 服务端监听地址 | `0.0.0.0` |
 | `listen_port` | Socket.io 服务端监听端口 | `6199` |
-| `access_key` | 客户端接入所需访问密钥（留空不校验） | `""` |
-| `astrbot_base_url` | AstrBot 自身 HTTP 服务地址（用于拉取机器人列表） | `http://127.0.0.1:6185` |
-| `astrbot_api_key` | AstrBot OpenAPI / Dashboard 的 API Key | `""` |
+
+> 自 v0.4.0 起，插件不再要求访问密钥，也不再依赖 AstrBot OpenAPI（`astrbot_base_url` / `astrbot_api_key` 已移除）。
 
 ## Socket.io 事件
 

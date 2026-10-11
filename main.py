@@ -7,10 +7,10 @@
 
 * 平台适配器在 :mod:`plus_platform` 中通过 ``@register_platform_adapter`` 注册；
 * Socket.io 服务端在 :mod:`plus_socket` 中实现（单端口）；
+* 机器人列表直接读取本进程内已实例化的平台适配器，无需 AstrBot OpenAPI；
 * 另外注册了 ``/plus`` 文本指令，用于在聊天中快速查看插件状态。
 
-配置项（见 ``_conf_schema.json``）：``listen_host`` / ``listen_port`` /
-``access_key`` / ``astrbot_base_url`` / ``astrbot_api_key``。
+配置项（见 ``_conf_schema.json``）：``listen_host`` / ``listen_port``。
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ except Exception:  # noqa: BLE001
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 
 @register(
@@ -92,7 +92,7 @@ class AstrBotPlusPlugin(Star):
         plug = cfg.get("plugin")
         if isinstance(plug, dict) and isinstance(plug.get(PLUGIN_NAME), dict):
             return dict(plug[PLUGIN_NAME])
-        if {"listen_port", "access_key", "astrbot_base_url"} & set(cfg.keys()):
+        if {"listen_port", "listen_host"} & set(cfg.keys()):
             return dict(cfg)
         return {}
 
@@ -101,9 +101,6 @@ class AstrBotPlusPlugin(Star):
         server = PlusSocketServer(
             host=str(conf.get("listen_host") or "0.0.0.0"),
             port=int(conf.get("listen_port") or 6199),
-            access_key=str(conf.get("access_key") or ""),
-            astrbot_base_url=str(conf.get("astrbot_base_url") or "http://127.0.0.1:6185"),
-            astrbot_api_key=str(conf.get("astrbot_api_key") or ""),
         )
         server.start()
         return server
@@ -113,9 +110,14 @@ class AstrBotPlusPlugin(Star):
     async def plus_status(self, event: AstrMessageEvent):
         """查看 AstrBot+ 插件状态：/plus"""
         ready = "就绪" if (self._socket and self._socket.available) else "未就绪"
+        bots = 0
+        try:
+            bots = len(plus_platform.list_bots())  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
         logger.info("[AstrBot+] 收到 /plus 状态查询指令。")
         yield event.plain_result(
-            f"🌟 AstrBot+ 配套插件 v{__version__}\nSocket.io 服务端：{ready}"
+            f"🌟 AstrBot+ 配套插件 v{__version__}\nSocket.io 服务端：{ready}\n已加载 Agent：{bots} 个"
         )
 
     async def terminate(self):

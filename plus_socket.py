@@ -5,10 +5,9 @@
 * 插件单独监听一个端口（默认 ``6199``），对外 **只暴露这一个端口**；AstrBot 的
   WebUI / 主服务端口保持不变。客户端只需连接 ``ws://<host>:<port>``。
 * 全流程走 Socket.io：**Agent（机器人）列表**与**流式对话**都通过事件完成。
-* 服务端拉取 + 客户端本地缓存：本服务端负责调用 AstrBot 自身的 HTTP API
-  （``/api/config/platform/list``）读取「创建机器人」页面的机器人列表。
-* 鉴权使用 API key：客户端在握手 ``auth`` 中携带 ``token``，与服务端配置的
-  ``access_key`` 一致才允许连接。
+* 机器人列表直接来自 AstrBot 内部已实例化的 ``astrbot_plus`` 平台适配器，
+  插件运行在同一进程内，无需回调 AstrBot 的 HTTP OpenAPI。
+* 访问方式保持简单：客户端直接连接即可，不再要求访问密钥。
 
 事件一览（客户端 → 服务端）：
 
@@ -22,12 +21,15 @@ chat:send                                 发送消息（服务端流式回推 c
 =========================================  ==================================
 
 服务端 → 客户端：``chat:session`` / ``chat:delta`` / ``chat:done`` / ``chat:error``。
+
+另外在根路径 ``/`` 与 ``/health`` 暴露一个健康检查页，便于在浏览器中确认
+Socket.io 服务端是否存活（浏览器直接访问端口不再返回 404）。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
+import html
 import threading
 from typing import Any, Callable
 
@@ -62,19 +64,9 @@ DEFAULT_PORT = 6199
 class PlusSocketServer:
     """在独立后台线程中运行的 Socket.io 服务端。"""
 
-    def __init__(
-        self,
-        host: str,
-        port: int,
-        access_key: str,
-        astrbot_base_url: str,
-        astrbot_api_key: str,
-    ) -> None:
+    def __init__(self, host: str, port: int) -> None:
         self.host = host or "0.0.0.0"
         self.port = int(port or DEFAULT_PORT)
-        self.access_key = (access_key or "").strip()
-        self.base_url = (astrbot_base_url or "http://127.0.0.1:6185").rstrip("/")
-        self.astrbot_api_key = (astrbot_api_key or "").strip()
         # 入站会话 -> 出站路由（sid / reqId），用于把机器人回复回推到正确的客户端
         self._routes: dict[str, dict[str, Any]] = {}
         self._outbound_registered = False
@@ -82,7 +74,7 @@ class PlusSocketServer:
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._runner: Any = None
-        self._available = socketio is not None and web is not None and aiohttp is not None
+        self._available = socketio is not None and web is not None
 
         self.sio = (
             socketio.AsyncServer(
@@ -97,6 +89,7 @@ class PlusSocketServer:
         self._app = web.Application() if self._available else None
         if self._available:
             self.sio.attach(self._app)
+            self._register_http()
             self._register_handlers()
 
     # ------------------------------------------------------------------ 生命周期
@@ -145,20 +138,87 @@ class PlusSocketServer:
             self._loop.call_soon_threadsafe(self._loop.stop)
         logger.info("[AstrBot+] Socket.io 服务端已停止。")
 
+    # ------------------------------------------------------------------ 健康检查页
+    def _register_http(self) -> None:
+        """注册普通 HTTP 路由，让浏览器访问端口时能看到状态而不是 404。"""
+        assert self._app is not None  # noqa: S101
+        self._app.router.add_get("/", self._handle_index)
+        self._app.router.add_get("/health", self._handle_index)
+
+    async def _handle_index(self, request: Any) -> Any:  # noqa: ANN401
+        version = html.escape(self._plugin_version())
+        bots = self._fetch_bots()
+        rows = "".join(
+            f"<li><b>{html.escape(b['name'])}</b>"
+            f"<span class='pid'>{html.escape(b['id'])}</span></li>"
+            for b in bots
+        ) or "<li class='none'>尚未在 WebUI「创建机器人」中启用 AstrBot+ 平台</li>"
+        page = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AstrBot+ 插件 · Socket.io 服务端</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; min-height: 100vh; display: flex; align-items: center;
+    justify-content: center; padding: 24px;
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    background: #0e1621; color: #e9edf1;
+  }}
+  .card {{
+    width: 100%; max-width: 520px; background: #17212b;
+    border: 1px solid rgba(128,150,170,.16); border-radius: 16px;
+    padding: 28px 28px 24px; box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }}
+  .head {{ display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }}
+  .dot {{ width: 11px; height: 11px; border-radius: 50%; background: #4caf50;
+         box-shadow: 0 0 0 4px rgba(76,175,80,.18); flex: 0 0 auto; }}
+  h1 {{ font-size: 19px; margin: 0; font-weight: 650; }}
+  .ver {{ margin-left: auto; font-size: 12px; color: #64b5f6;
+         background: rgba(47,134,189,.16); padding: 3px 10px; border-radius: 999px; }}
+  .ok {{ color: #9ccc9c; font-size: 14px; margin: 4px 0 18px; }}
+  .label {{ font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+           color: #7f93a6; margin: 0 0 8px; }}
+  .endpoint {{ font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px;
+    background: #0e1621; border: 1px solid rgba(128,150,170,.2);
+    padding: 10px 12px; border-radius: 10px; color: #4fc3f7; word-break: break-all; }}
+  ul {{ list-style: none; margin: 0; padding: 0; }}
+  li {{ display: flex; align-items: center; gap: 8px; padding: 8px 2px;
+       border-bottom: 1px solid rgba(128,150,170,.1); font-size: 14px; }}
+  li:last-child {{ border-bottom: 0; }}
+  li .pid {{ margin-left: auto; font-size: 12px; color: #7f93a6;
+            font-family: ui-monospace, Menlo, monospace; }}
+  li.none {{ color: #7f93a6; }}
+  .tip {{ margin-top: 18px; font-size: 12.5px; color: #8fa3b5; line-height: 1.7; }}
+  code {{ background: rgba(127,140,150,.22); padding: 1px 6px; border-radius: 5px;
+         font-size: 12px; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="head"><span class="dot"></span><h1>AstrBot+ 插件服务端</h1><span class="ver">v{version}</span></div>
+    <p class="ok">Socket.io 服务端运行正常 ✅</p>
+    <p class="label">客户端连接地址</p>
+    <div class="endpoint">ws://&lt;服务器地址&gt;:{self.port}</div>
+    <p class="label" style="margin-top:16px">已加载的 Agent（{len(bots)}）</p>
+    <ul>{rows}</ul>
+    <p class="tip">这是 AstrBot+ 配套插件的服务端口，并非网页。请在 AstrBot+
+      客户端的「连接设置」中填入上述地址（支持 <code>host:6199</code>、
+      <code>http://…</code> 或 <code>ws://…</code> 写法），即可开始对话。</p>
+  </div>
+</body>
+</html>"""
+        return web.Response(text=page, content_type="text/html")
+
     # ------------------------------------------------------------------ 事件注册
     def _register_handlers(self) -> None:
         sio = self.sio
 
         @sio.event
-        async def connect(sid, environ, auth):  # noqa: ANN001
-            token = ""
-            if isinstance(auth, dict):
-                token = str(
-                    auth.get("token") or auth.get("apiKey") or auth.get("api_key") or ""
-                )
-            if self.access_key and token != self.access_key:
-                logger.warning("[AstrBot+] 客户端鉴权失败，已拒绝连接。")
-                raise socketio.exceptions.ConnectionRefusedError("invalid access key")
+        async def connect(sid, environ, auth):  # noqa: ANN001, ARG001
             logger.info(f"[AstrBot+] 客户端已连接：{sid}")
 
         @sio.event
@@ -176,12 +236,12 @@ class PlusSocketServer:
             return {
                 "plugin": "astrbot_plugin_plus",
                 "version": self._plugin_version(),
-                "astrbotBaseUrl": self.base_url,
+                "port": self.port,
             }
 
         @sio.on("bots:list")
         async def _bots_list(sid, data=None):  # noqa: ANN001
-            return await self._safe(self._fetch_bots)
+            return await self._safe(self._fetch_bots_async)
 
         @sio.on("chat:send")
         async def _chat_send(sid, data=None):  # noqa: ANN001
@@ -297,61 +357,23 @@ class PlusSocketServer:
             logger.warning(f"[AstrBot+] Socket 处理异常：{exc}")
             return {"status": "error", "message": str(exc), "data": None}
 
-    def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
-        if self.astrbot_api_key:
-            headers["Authorization"] = f"Bearer {self.astrbot_api_key}"
-        return headers
-
-    async def _get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        url = f"{self.base_url}{path}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=self._headers()) as resp:
-                text = await resp.text()
-                try:
-                    return json.loads(text)
-                except Exception:  # noqa: BLE001
-                    return {"raw": text}
-
     # ------------------------------------------------------------------ AstrBot 桥接
-    async def _fetch_bots(self) -> list[dict[str, Any]]:
-        """机器人列表：WebUI「创建机器人」页面中的平台配置。"""
-        # 新版：GET /api/config/bots；兼容旧版：GET /api/config/platform/list
-        for path, extractor in (
-            (
-                "/api/config/platform/list",
-                lambda b: (b.get("data") or {}).get("platforms"),
-            ),
-            ("/api/config/bots", lambda b: (b.get("data") or {}).get("bots")),
-        ):
-            try:
-                body = await self._get_json(path)
-            except Exception:  # noqa: BLE001
-                continue
-            items = extractor(body if isinstance(body, dict) else {})
-            if items:
-                bots = [self._normalize_bot(b) for b in items]
-                # 优先只展示由 AstrBot+ 平台创建的机器人；若一个都没有，则回退展示全部。
-                plus_bots = [b for b in bots if "astrbot_plus" in (b.get("platform") or "")]
-                return plus_bots or bots
-        return []
+    def _fetch_bots(self) -> list[dict[str, Any]]:
+        """机器人列表：直接读取 AstrBot 内部已实例化的 ``astrbot_plus`` 平台适配器。
 
-    @staticmethod
-    def _normalize_bot(raw: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(raw, dict):
-            return {"id": str(raw), "name": str(raw)}
-        cfg = raw.get("config") if isinstance(raw.get("config"), dict) else {}
-        bot_id = str(raw.get("id") or raw.get("bot_id") or cfg.get("id") or "")
-        name = raw.get("name") or cfg.get("name") or cfg.get("platform") or bot_id
-        return {
-            "id": bot_id,
-            "name": str(name),
-            "platform": str(
-                raw.get("type") or raw.get("platform") or cfg.get("type") or ""
-            ),
-            "enabled": bool(raw.get("enabled", True)),
-            "raw": raw,
-        }
+        插件运行在与 AstrBot 相同的进程中，平台适配器在「创建机器人」启用后即已
+        实例化并注册到 :data:`plus_platform._ADAPTERS`，因此无需回调 HTTP OpenAPI。
+        """
+        if plus_platform is None:
+            return []
+        try:
+            return plus_platform.list_bots()  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 读取机器人列表失败：{exc}")
+            return []
+
+    async def _fetch_bots_async(self) -> list[dict[str, Any]]:
+        return self._fetch_bots()
 
     # ------------------------------------------------------------------ 杂项
     def _plugin_version(self) -> str:
@@ -360,4 +382,4 @@ class PlusSocketServer:
 
             return __version__
         except Exception:  # noqa: BLE001
-            return "0.3.2"
+            return "0.4.0"

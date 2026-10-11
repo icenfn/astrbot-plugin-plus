@@ -87,6 +87,36 @@ def has_adapters() -> bool:
     return bool(_ADAPTERS)
 
 
+def list_bots() -> list[dict[str, Any]]:
+    """返回当前已实例化的 AstrBot+ 机器人（Agent）列表。
+
+    插件与 AstrBot 运行在同一进程中：WebUI「创建机器人」里每启用一个
+    astrbot_plus 平台，就会实例化一个 :class:`AstrBotPlusAdapter` 并登记到
+    :data:`_ADAPTERS`。因此这里直接从内存读取即可，无需回调 AstrBot 的
+    HTTP OpenAPI（也不需要 AstrBot 的 API Key）。
+    """
+    bots: list[dict[str, Any]] = []
+    for platform_id, adapter in _ADAPTERS.items():
+        cfg = getattr(adapter, "platform_config", None) or {}
+        name = (
+            cfg.get("name")
+            or cfg.get("bot_name")
+            or cfg.get("id")
+            or platform_id
+        )
+        bots.append(
+            {
+                "id": str(platform_id),
+                "name": str(name),
+                "platform": ADAPTER_NAME,
+                "enabled": bool(cfg.get("enable", True)),
+            }
+        )
+    # 稳定排序，避免每次刷新列表顺序跳动。
+    bots.sort(key=lambda b: b["id"])
+    return bots
+
+
 def _extract_text(message: Any) -> str:
     """从 MessageChain / 组件列表中提取纯文本。"""
     if isinstance(message, str):
@@ -145,7 +175,6 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
         "type": ADAPTER_NAME,
         "enable": False,
         "id": ADAPTER_NAME,
-        "access_key": "",
     },
     adapter_display_name=ADAPTER_DISPLAY_NAME,
     logo_path="logo.png",
