@@ -157,12 +157,17 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
         self._adapter = adapter
 
     async def send(self, message: Any) -> None:
+        # 标记「本次事件已产生发送操作」。AstrBot 的 ProcessStage 以
+        # ``not event._has_send_oper`` 作为「继续调用 LLM」的条件，
+        # 若不置位，指令（如 /reset）已回复后仍会再触发一次 LLM 回复。
+        self._has_send_oper = True
         text = _extract_text(message)
         if text:
             _push(self.session_id, text, done=True)
 
     async def send_streaming(self, generator: Any, use_fallback: bool = False) -> None:  # noqa: D401
         """流式发送：逐段推送增量，最后标记完成。"""
+        self._has_send_oper = True
         try:
             async for chunk in generator:
                 text = _extract_text(chunk)
