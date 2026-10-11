@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
 from astrbot.api import logger
@@ -306,3 +307,94 @@ async def dispatch_incoming(
 
 def available_platform_ids() -> list[str]:
     return list(_ADAPTERS.keys())
+
+
+# --- WebUI 平台 logo 令牌韧性修复 ------------------------------------------------
+# AstrBot 通过「文件令牌」为平台 logo 提供访问（/api/v1/files/tokens/<token>），
+# 但该机制存在已知缺陷（上游 #10294，2026-10-02 才修复）：
+#   1) 旧版本中令牌是「一次性」的：图片第一次加载后令牌即被销毁，之后永远 404；
+#   2) 令牌仅 1 小时有效期且存于内存，过期或服务重启后旧链接全部 404。
+# 插件与 AstrBot 同进程运行，这里做两处防御性处理，让本插件 logo 在新旧版本
+# AstrBot 上都能稳定显示：
+#   - 包装 file_token_service.handle_file：指向本插件 logo 的令牌访问时不消费；
+#   - 后台任务定期为指向本插件 logo 的令牌续期，避免 1 小时过期。
+
+_LOGO_FILE = Path(__file__).parent / "logo.png"
+_logo_keepalive_task: "asyncio.Task | None" = None
+
+
+def _patch_logo_handle_file() -> None:
+    """让指向本插件 logo 的文件令牌「免消费」（兼容旧版一次性令牌行为）。"""
+    try:
+        from astrbot.core import file_token_service as svc
+    except Exception:  # noqa: BLE001
+        return
+    if getattr(svc, "_astrbot_plus_logo_patched", False):
+        return
+    orig = getattr(svc, "handle_file", None)
+    if not callable(orig):
+        return
+    logo_abs = str(_LOGO_FILE)
+
+    async def handle_file(file_token):  # noqa: ANN001, ANN202
+        try:
+            entry = svc.staged_files.get(file_token)
+        except Exception:  # noqa: BLE001
+            entry = None
+        if entry and str(entry[0]) == logo_abs:
+            if not _LOGO_FILE.exists():
+                raise FileNotFoundError(f"File does not exist: {logo_abs}")
+            return logo_abs  # 不消费、不销毁，供 WebUI 重复加载
+        return await orig(file_token)
+
+    svc.handle_file = handle_file  # type: ignore[method-assign]
+    svc._astrbot_plus_logo_patched = True  # type: ignore[attr-defined]
+    logger.info("[AstrBot+] 已启用平台 logo 令牌兼容补丁（防一次性消费）。")
+
+
+async def _logo_keepalive() -> None:
+    """定期为指向本插件 logo 的文件令牌续期，避免 1 小时过期后 404。"""
+    try:
+        from astrbot.core import file_token_service as svc
+    except Exception:  # noqa: BLE001
+        return
+    logo_abs = str(_LOGO_FILE)
+    while True:
+        await asyncio.sleep(240)  # 4 分钟 < 3600 秒有效期
+        try:
+            now = time.time()
+            staged = getattr(svc, "staged_files", None)
+            if not isinstance(staged, dict):
+                continue
+            for token, entry in list(staged.items()):
+                try:
+                    if str(entry[0]) != logo_abs:
+                        continue
+                    # 兼容 2 元组 (path, expire) 与 3 元组 (path, expire, single_use)
+                    staged[token] = (entry[0], now + 3600, *entry[2:])
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"[AstrBot+] logo 令牌续期异常：{exc}")
+
+
+def install_logo_resilience() -> None:
+    """安装 WebUI logo 令牌的跨版本兼容处理（幂等，可重复调用）。"""
+    _patch_logo_handle_file()
+    global _logo_keepalive_task
+    if _logo_keepalive_task is not None and not _logo_keepalive_task.done():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is not None:
+        _logo_keepalive_task = loop.create_task(_logo_keepalive())
+
+
+def stop_logo_keepalive() -> None:
+    """插件卸载时停止续期任务。"""
+    global _logo_keepalive_task
+    if _logo_keepalive_task is not None:
+        _logo_keepalive_task.cancel()
+        _logo_keepalive_task = None

@@ -37,7 +37,7 @@ except Exception:  # noqa: BLE001
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 
 @register(
@@ -62,6 +62,14 @@ class AstrBotPlusPlugin(Star):
             )
         else:
             logger.info(f"[AstrBot+] 插件已加载（v{__version__}），Socket.io 服务端就绪。")
+
+        # WebUI 平台 logo 令牌的跨版本兼容处理（修复「创建机器人」中 logo 404）。
+        _pp = globals().get("plus_platform")
+        if _pp is not None:
+            try:
+                _pp.install_logo_resilience()
+            except Exception as _exc:  # noqa: BLE001
+                logger.debug(f"[AstrBot+] logo 兼容补丁安装跳过：{_exc}")
 
     # ------------------------------------------------------------ 插件配置读取
     def _plugin_conf(self) -> dict[str, Any]:
@@ -121,6 +129,12 @@ class AstrBotPlusPlugin(Star):
         )
 
     async def terminate(self):
+        _pp = globals().get("plus_platform")
+        if _pp is not None:
+            try:
+                _pp.stop_logo_keepalive()
+            except Exception:  # noqa: BLE001
+                pass
         if getattr(self, "_socket", None) is not None:
             self._socket.stop()
         logger.info("[AstrBot+] 插件已卸载。")

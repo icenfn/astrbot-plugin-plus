@@ -22,6 +22,11 @@
 2. 重启 AstrBot，确保依赖 `python-socketio` 与 `aiohttp` 已安装（见 `requirements.txt`）；
 3. 如需修改端口，在插件配置中设置 `listen_port`（默认 `6199`）。
 
+> **WebUI 平台 logo 说明**：自 v0.4.1 起，插件内置了对 AstrBot「文件令牌」机制已知缺陷
+> （上游 AstrBot #10294，2026-10-02 修复）的兼容处理，「创建机器人」平台选择器中的 logo
+> 可稳定显示。若之前安装过旧版本插件且 logo 显示 404，请升级插件、重启 AstrBot 后强制
+> 刷新页面（Ctrl+F5）。
+
 ## 配置（`_conf_schema.json`）
 
 | 配置项 | 说明 | 默认 |
