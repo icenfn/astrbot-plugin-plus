@@ -99,16 +99,20 @@ def list_bots() -> list[dict[str, Any]]:
     bots: list[dict[str, Any]] = []
     for platform_id, adapter in _ADAPTERS.items():
         cfg = getattr(adapter, "platform_config", None) or {}
-        name = (
-            cfg.get("name")
+        # 昵称：WebUI「创建机器人」中填写的 nickname；未填则回退到机器人 id，
+        # 客户端消息列表显示该名字。
+        nickname = (
+            cfg.get("nickname")
+            or cfg.get("name")
             or cfg.get("bot_name")
-            or cfg.get("id")
-            or platform_id
+            or ""
         )
+        name = str(nickname) if nickname else str(platform_id)
         bots.append(
             {
                 "id": str(platform_id),
-                "name": str(name),
+                "name": name,
+                "nickname": str(nickname),
                 "platform": ADAPTER_NAME,
                 "enabled": bool(cfg.get("enable", True)),
             }
@@ -176,6 +180,7 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
         "type": ADAPTER_NAME,
         "enable": False,
         "id": ADAPTER_NAME,
+        "nickname": "",
     },
     adapter_display_name=ADAPTER_DISPLAY_NAME,
     logo_path="logo.png",

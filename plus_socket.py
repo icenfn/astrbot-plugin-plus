@@ -17,10 +17,12 @@
 ping                                      心跳，返回 {pong: true}
 config                                    返回服务端能力 / 默认配置
 bots:list                                 机器人（Agent）列表（WebUI「创建机器人」页）
+chat:history                              拉取某个会话的历史消息（客户端历史同步）
 chat:send                                 发送消息（服务端流式回推 chat:delta / chat:done）
 =========================================  ==================================
 
-服务端 → 客户端：``chat:session`` / ``chat:delta`` / ``chat:done`` / ``chat:error``。
+服务端 → 客户端：``chat:session`` / ``chat:delta`` / ``chat:done`` / ``chat:error`` /
+``message:new``（新消息广播，含用户与机器人消息，用于消息列表红点 / 副标题 / 系统通知）。
 
 另外在根路径 ``/`` 与 ``/health`` 暴露一个健康检查页，便于在浏览器中确认
 Socket.io 服务端是否存活（浏览器直接访问端口不再返回 404）。
@@ -30,7 +32,10 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import threading
+import time
+from pathlib import Path
 from typing import Any, Callable
 
 try:  # aiohttp 随 AstrBot 一并提供
@@ -70,6 +75,12 @@ class PlusSocketServer:
         # 入站会话 -> 出站路由（sid / reqId），用于把机器人回复回推到正确的客户端
         self._routes: dict[str, dict[str, Any]] = {}
         self._outbound_registered = False
+        # 历史消息缓存（按 session 存储）与流式缓冲，用于客户端历史同步与列表实时更新。
+        self._history: dict[str, list[dict[str, Any]]] = {}
+        self._history_lock = threading.Lock()
+        self._stream_buf: dict[str, str] = {}
+        self._history_file = Path(__file__).parent / "data" / "history.json"
+        self._history_loaded = False
 
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -82,6 +93,9 @@ class PlusSocketServer:
                 cors_allowed_origins="*",
                 logger=False,
                 engineio_logger=False,
+                # 心跳保活：更宽松的 ping 间隔 / 超时，减少移动网络下的误断开。
+                ping_interval=25,
+                ping_timeout=60,
             )
             if self._available
             else None
@@ -137,6 +151,77 @@ class PlusSocketServer:
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
         logger.info("[AstrBot+] Socket.io 服务端已停止。")
+
+    # ------------------------------------------------------------------ 历史消息
+    def _load_history(self) -> None:
+        if self._history_loaded:
+            return
+        self._history_loaded = True
+        try:
+            if self._history_file.exists():
+                with open(self._history_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        if isinstance(v, list):
+                            self._history[str(k)] = v
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 读取历史消息失败：{exc}")
+
+    def _save_history(self) -> None:
+        try:
+            self._history_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._history_file.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._history, f, ensure_ascii=False)
+            tmp.replace(self._history_file)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 写入历史消息失败：{exc}")
+
+    def get_history(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self._history_lock:
+            self._load_history()
+            items = list(self._history.get(session_id, []))
+        if limit and limit > 0:
+            return items[-limit:]
+        return items
+
+    def _record_message(
+        self, session_id: str, role: str, text: str, bot_id: str = ""
+    ) -> dict[str, Any]:
+        msg = {
+            "sessionId": session_id,
+            "botId": bot_id,
+            "role": role,
+            "text": text,
+            "ts": time.time(),
+        }
+        with self._history_lock:
+            self._load_history()
+            bucket = self._history.setdefault(session_id, [])
+            bucket.append(msg)
+            if len(bucket) > 500:
+                del bucket[:-500]
+            self._save_history()
+        return msg
+
+    def _record_and_broadcast(
+        self, session_id: str, role: str, text: str, bot_id: str = ""
+    ) -> None:
+        """记录一条消息并广播给所有客户端，用于消息列表红点 / 副标题实时刷新。"""
+        if not text:
+            return
+        msg = self._record_message(session_id, role, text, bot_id)
+        self._broadcast("message:new", msg)
+
+    def _broadcast(self, event: str, payload: dict[str, Any]) -> None:
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self.sio.emit(event, payload), loop)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 广播 {event} 失败：{exc}")
 
     # ------------------------------------------------------------------ 健康检查页
     def _register_http(self) -> None:
@@ -243,6 +328,24 @@ class PlusSocketServer:
         async def _bots_list(sid, data=None):  # noqa: ANN001
             return await self._safe(self._fetch_bots_async)
 
+        @sio.on("chat:history")
+        async def _chat_history(sid, data=None):  # noqa: ANN001
+            data = data or {}
+            session_id = str(
+                data.get("sessionId") or data.get("session_id") or ""
+            ).strip()
+            if not session_id:
+                bot_id = str(data.get("botId") or data.get("bot_id") or "")
+                session_id = f"plus_{bot_id}" if bot_id else ""
+            try:
+                limit = int(data.get("limit") or 200)
+            except Exception:  # noqa: BLE001
+                limit = 200
+            return {
+                "sessionId": session_id,
+                "messages": self.get_history(session_id, limit),
+            }
+
         @sio.on("chat:send")
         async def _chat_send(sid, data=None):  # noqa: ANN001
             data = data or {}
@@ -265,7 +368,11 @@ class PlusSocketServer:
                 )
                 return {"accepted": False}
 
-            self._routes[session_id] = {"sid": sid, "reqId": req_id}
+            self._routes[session_id] = {
+                "sid": sid,
+                "reqId": req_id,
+                "botId": bot_id,
+            }
             logger.info(
                 f"[AstrBot+] 收到聊天请求 sid={sid} bot={bot_id or '-'} session={session_id}"
             )
@@ -275,6 +382,9 @@ class PlusSocketServer:
                 {"reqId": req_id, "sessionId": session_id},
                 to=sid,
             )
+            # 记录用户消息并广播，客户端据此更新消息列表（红点 / 副标题 / 通知）。
+            user_text = str(data.get("text") or data.get("message") or "")
+            self._record_and_broadcast(session_id, "user", user_text, bot_id)
             self.sio.start_background_task(
                 self._dispatch_incoming,
                 sid,
@@ -302,18 +412,30 @@ class PlusSocketServer:
     async def _emit_out(self, session_id: str, text: str, meta: dict[str, Any]) -> None:
         route = self._routes.get(session_id)
         if not route:
+            # 无对应路由：仍记录机器人主动消息，便于客户端列表实时更新与历史同步。
+            if meta.get("done") and text:
+                self._record_and_broadcast(session_id, "assistant", text, "")
             return
         sid = route.get("sid")
         req_id = route.get("reqId", "")
+        bot_id = route.get("botId", "")
         try:
             if meta.get("done"):
+                # 兼容「未开启流式输出」：done 时可能一次性携带完整文本，
+                # 也可能此前只有增量（此时 text 为空），两者统一为完整内容。
+                full = self._stream_buf.pop(session_id, "") + (text or "")
+                if full:
+                    self._record_and_broadcast(session_id, "assistant", full, bot_id)
                 await self.sio.emit(
                     "chat:done",
-                    {"reqId": req_id, "sessionId": session_id, "text": text},
+                    {"reqId": req_id, "sessionId": session_id, "text": full},
                     to=sid,
                 )
                 self._routes.pop(session_id, None)
             elif text:
+                self._stream_buf[session_id] = (
+                    self._stream_buf.get(session_id, "") + text
+                )
                 await self.sio.emit(
                     "chat:delta", {"reqId": req_id, "delta": text}, to=sid
                 )

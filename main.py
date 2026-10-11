@@ -38,7 +38,7 @@ except Exception:  # noqa: BLE001
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 
 @register(
