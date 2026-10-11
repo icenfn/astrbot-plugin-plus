@@ -149,6 +149,48 @@ def _push(session_id: str, text: str, *, delta: bool = False, done: bool = False
         logger.warning(f"[AstrBot+] 出站推送失败：{exc}")
 
 
+# --- 单轮消息聚合（修复「偶尔漏掉 AI 回复」） ------------------------------------
+# 当 AstrBot 开启「输出工具调用信息 / 显示思考内容」等配置时，一个回合内会产生多次
+# send()/send_streaming() 调用（工具状态、思考内容、最终回答…）。旧实现每次 send()
+# 都携带 done=True，Socket 层收到第一个 done 即结束该路由，导致同回合后续消息丢失。
+# 现改为：同一会话、同一回合内的文本先累积，并在短暂静默后统一发送一次 done。
+_TURN_BUFFER: dict[str, list[str]] = {}
+_TURN_TIMERS: dict[str, Any] = {}
+_TURN_DEBOUNCE_SECONDS = 0.4
+
+
+def _flush_turn(session_id: str) -> None:
+    """静默后将本回合累积的文本作为完整回复一次性下发。"""
+    _TURN_TIMERS.pop(session_id, None)
+    parts = _TURN_BUFFER.pop(session_id, [])
+    if not parts:
+        return
+    _push(session_id, "".join(parts), done=True)
+
+
+def _schedule_turn_flush(session_id: str, delay: float = _TURN_DEBOUNCE_SECONDS) -> None:
+    """安排（或重置）本回合的结束定时器；重复调用会取消上一个定时器。"""
+    loop = _MAIN_LOOP
+    if loop is None:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+    old = _TURN_TIMERS.pop(session_id, None)
+    if old is not None:
+        try:
+            old.cancel()
+        except Exception:  # noqa: BLE001
+            pass
+    if loop is None:
+        _flush_turn(session_id)
+        return
+    try:
+        _TURN_TIMERS[session_id] = loop.call_later(delay, _flush_turn, session_id)
+    except Exception:  # noqa: BLE001
+        _flush_turn(session_id)
+
+
 class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
     """AstrBot+ 的消息事件；把回复通过 Socket.io 回推给客户端。"""
 
@@ -163,7 +205,10 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
         self._has_send_oper = True
         text = _extract_text(message)
         if text:
-            _push(self.session_id, text, done=True)
+            _TURN_BUFFER.setdefault(self.session_id, []).append(text)
+        # 一回合内可能多次 send()（工具调用状态、思考内容、最终回答等），
+        # 延迟结束本回合，等静默后再统一 done，避免漏掉同回合后续消息。
+        _schedule_turn_flush(self.session_id)
 
     async def send_streaming(self, generator: Any, use_fallback: bool = False) -> None:  # noqa: D401
         """流式发送：逐段推送增量，最后标记完成。"""
@@ -172,10 +217,11 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
             async for chunk in generator:
                 text = _extract_text(chunk)
                 if text:
+                    _TURN_BUFFER.setdefault(self.session_id, []).append(text)
                     _push(self.session_id, text, delta=True)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[AstrBot+] 流式发送出错：{exc}")
-        _push(self.session_id, "", done=True)
+        _schedule_turn_flush(self.session_id)
 
 
 @register_platform_adapter(

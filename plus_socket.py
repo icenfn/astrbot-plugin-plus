@@ -423,7 +423,9 @@ class PlusSocketServer:
             if meta.get("done"):
                 # 兼容「未开启流式输出」：done 时可能一次性携带完整文本，
                 # 也可能此前只有增量（此时 text 为空），两者统一为完整内容。
-                full = self._stream_buf.pop(session_id, "") + (text or "")
+                streamed = self._stream_buf.pop(session_id, "")
+                # 优先使用携带的完整文本（插件层已做单轮聚合）；否则回退到增量累积。
+                full = text if text else streamed
                 if full:
                     self._record_and_broadcast(session_id, "assistant", full, bot_id)
                 await self.sio.emit(

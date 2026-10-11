@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AstrBot+ 机器人管理</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hd">
+        <div class="hd-left">
+          <span class="logo">AstrBot+</span>
+          <h1>机器人管理</h1>
+        </div>
+        <button id="refresh" class="btn ghost" type="button">刷新</button>
+      </header>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <section class="card">
+        <h2>新建机器人</h2>
+        <form id="create-form" class="form" autocomplete="off">
+          <label class="field">
+            <span>ID（唯一标识，仅字母/数字/下划线/连字符）</span>
+            <input id="new-id" name="id" type="text" placeholder="plus_default" required />
+          </label>
+          <label class="field">
+            <span>昵称（客户端会话列表显示名）</span>
+            <input id="new-nickname" name="nickname" type="text" placeholder="我的助手" />
+          </label>
+          <label class="check">
+            <input id="new-enable" name="enable" type="checkbox" checked />
+            <span>创建后立即启用</span>
+          </label>
+          <button class="btn primary" type="submit">创建机器人</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>已创建的机器人 <span id="count" class="count">0</span></h2>
+        <ul id="bot-list" class="list"></ul>
+        <p id="empty" class="empty" hidden>还没有 AstrBot+ 机器人，使用上方表单创建一个。</p>
+      </section>
+    </div>
+
+    <template id="bot-row">
+      <li class="row">
+        <div class="row-main">
+          <div class="row-title">
+            <span class="name"></span>
+            <span class="state"></span>
+          </div>
+          <div class="row-sub"><code class="pid"></code></div>
+        </div>
+        <div class="row-actions">
+          <button class="btn small toggle" type="button"></button>
+          <button class="btn small danger del" type="button">删除</button>
+        </div>
+      </li>
+    </template>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

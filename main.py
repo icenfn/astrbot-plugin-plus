@@ -16,11 +16,21 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
+
+try:  # AstrBot >= 4.18 的插件可视化视图 Web API helper；旧版本无此模块。
+    from astrbot.api.web import error_response, json_response, request
+except Exception:  # noqa: BLE001
+    error_response = None  # type: ignore[assignment]
+    json_response = None  # type: ignore[assignment]
+    request = None  # type: ignore[assignment]
+
+_VALID_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 try:  # AstrBot 通常以包形式加载插件；回退保证独立加载也能工作。
     from .plus_socket import PlusSocketServer
@@ -38,7 +48,7 @@ except Exception:  # noqa: BLE001
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.4.3"
+__version__ = "0.4.5"
 
 
 @register(
@@ -75,6 +85,183 @@ class AstrBotPlusPlugin(Star):
         # 插件重载/重装后自愈平台适配器实例（AstrBot 的 reload 只重载插件代码，
         # 不会重新实例化已有的 astrbot_plus 平台，导致「不识别之前的机器人」）。
         self._start_adapter_rescue()
+
+        # ---- 注册 WebUI 可视化视图（「机器人管理」页面）的后端 API -------
+        self._register_web_apis()
+
+    # ------------------------------------------------ WebUI 可视化视图后端 API
+    def _register_web_apis(self) -> None:
+        """注册「机器人管理」视图所需的后端 API（AstrBot >= 4.18 可视化视图规范）。
+
+        路由以插件名为前缀；视图端 bridge endpoint 不含插件名，由 Dashboard
+        转发到 ``/api/v1/plugins/extensions/<plugin_name>/...``。
+        旧版 AstrBot 无 ``register_web_api``，此时跳过并记录日志。
+        """
+        register_web_api = getattr(self.context, "register_web_api", None)
+        if not callable(register_web_api):
+            logger.info(
+                "[AstrBot+] 当前 AstrBot 版本不支持插件可视化视图（缺少 register_web_api），已跳过「机器人管理」页面注册。"
+            )
+            return
+        try:
+            register_web_api(f"/{PLUGIN_NAME}/bots", self.page_list_bots, ["GET"], "列出 AstrBot+ 机器人")
+            register_web_api(f"/{PLUGIN_NAME}/bots/create", self.page_create_bot, ["POST"], "创建 AstrBot+ 机器人")
+            register_web_api(f"/{PLUGIN_NAME}/bots/toggle", self.page_toggle_bot, ["POST"], "启用/停用 AstrBot+ 机器人")
+            register_web_api(f"/{PLUGIN_NAME}/bots/delete", self.page_delete_bot, ["POST"], "删除 AstrBot+ 机器人")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 「机器人管理」视图 API 注册失败：{exc}")
+            return
+        logger.info("[AstrBot+] 已注册「机器人管理」可视化视图后端 API。")
+
+    # ------------------------------------------------------ 配置 / 平台适配器辅助
+    @staticmethod
+    def _adapter_name() -> str:
+        _pp = globals().get("plus_platform")
+        return getattr(_pp, "ADAPTER_NAME", "astrbot_plus") if _pp else "astrbot_plus"
+
+    def _global_config(self) -> Any:
+        try:
+            return self.context.get_config()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _platform_configs(self) -> list[dict[str, Any]]:
+        """返回全局配置中的平台列表（可变引用），缺失时创建空列表。"""
+        cfg = self._global_config()
+        if cfg is None:
+            return []
+        platforms = cfg.get("platform")
+        if not isinstance(platforms, list):
+            platforms = []
+            try:
+                cfg["platform"] = platforms
+            except Exception:  # noqa: BLE001
+                return []
+        return platforms
+
+    async def _save_config(self) -> None:
+        cfg = self._global_config()
+        if cfg is None:
+            return
+        saver = getattr(cfg, "save_config_async", None)
+        if callable(saver):
+            await saver()
+            return
+        saver = getattr(cfg, "save_config", None)
+        if callable(saver):
+            saver()
+
+    @staticmethod
+    def _bot_view(plat: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": str(plat.get("id") or ""),
+            "nickname": str(plat.get("nickname") or ""),
+            "enable": bool(plat.get("enable", False)),
+            "type": str(plat.get("type") or ""),
+        }
+
+    def _plus_bots(self) -> list[dict[str, Any]]:
+        name = self._adapter_name()
+        bots = [
+            self._bot_view(p)
+            for p in self._platform_configs()
+            if isinstance(p, dict) and p.get("type") == name
+        ]
+        bots.sort(key=lambda b: b["id"])
+        return bots
+
+    async def _load_platform(self, plat: dict[str, Any]) -> None:
+        pm = getattr(self.context, "platform_manager", None)
+        if pm is None or not hasattr(pm, "load_platform"):
+            return
+        try:
+            await pm.load_platform(dict(plat))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 加载机器人 {plat.get('id')} 失败：{exc}")
+
+    async def _terminate_platform(self, bot_id: str) -> None:
+        pm = getattr(self.context, "platform_manager", None)
+        if pm is None or not hasattr(pm, "terminate_platform"):
+            return
+        try:
+            await pm.terminate_platform(bot_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AstrBot+] 停止机器人 {bot_id} 失败：{exc}")
+
+    # --------------------------------------------------------- 视图 API handlers
+    async def page_list_bots(self):
+        """GET /astrbot_plugin_plus/bots — 返回全部 AstrBot+ 机器人。"""
+        try:
+            bots = self._plus_bots()
+        except Exception as exc:  # noqa: BLE001
+            return error_response(f"读取机器人列表失败：{exc}")
+        return json_response({"bots": bots, "plugin": PLUGIN_NAME})
+
+    async def page_create_bot(self):
+        """POST /astrbot_plugin_plus/bots/create — 新建机器人并持久化。"""
+        payload = await request.json(default={}) or {}
+        bot_id = str(payload.get("id") or "").strip()
+        nickname = str(payload.get("nickname") or "").strip()
+        enable = bool(payload.get("enable", True))
+        if not bot_id:
+            return error_response("机器人 ID 不能为空", status_code=400)
+        if not _VALID_ID_RE.match(bot_id):
+            return error_response("机器人 ID 仅允许字母、数字、下划线、连字符", status_code=400)
+        platforms = self._platform_configs()
+        if any(isinstance(p, dict) and str(p.get("id")) == bot_id for p in platforms):
+            return error_response(f"机器人 ID「{bot_id}」已存在", status_code=409)
+        bot = {"type": self._adapter_name(), "enable": enable, "id": bot_id, "nickname": nickname}
+        platforms.append(bot)
+        await self._save_config()
+        if enable:
+            await self._load_platform(bot)
+        logger.info(f"[AstrBot+] 通过可视化视图创建机器人：{bot_id}（enable={enable}）")
+        return json_response({"created": self._bot_view(bot)})
+
+    async def page_toggle_bot(self):
+        """POST /astrbot_plugin_plus/bots/toggle — 启用/停用机器人。"""
+        payload = await request.json(default={}) or {}
+        bot_id = str(payload.get("id") or "").strip()
+        enable = bool(payload.get("enable", False))
+        if not bot_id:
+            return error_response("机器人 ID 不能为空", status_code=400)
+        name = self._adapter_name()
+        target = None
+        for p in self._platform_configs():
+            if isinstance(p, dict) and str(p.get("id")) == bot_id and p.get("type") == name:
+                target = p
+                break
+        if target is None:
+            return error_response(f"未找到机器人「{bot_id}」", status_code=404)
+        target["enable"] = enable
+        await self._save_config()
+        if enable:
+            await self._load_platform(dict(target))
+        else:
+            await self._terminate_platform(bot_id)
+        logger.info(f"[AstrBot+] 通过可视化视图{'启用' if enable else '停用'}机器人：{bot_id}")
+        return json_response({"updated": self._bot_view(target)})
+
+    async def page_delete_bot(self):
+        """POST /astrbot_plugin_plus/bots/delete — 删除机器人。"""
+        payload = await request.json(default={}) or {}
+        bot_id = str(payload.get("id") or "").strip()
+        if not bot_id:
+            return error_response("机器人 ID 不能为空", status_code=400)
+        name = self._adapter_name()
+        platforms = self._platform_configs()
+        remain = [
+            p
+            for p in platforms
+            if not (isinstance(p, dict) and str(p.get("id")) == bot_id and p.get("type") == name)
+        ]
+        if len(remain) == len(platforms):
+            return error_response(f"未找到机器人「{bot_id}」", status_code=404)
+        platforms[:] = remain
+        await self._save_config()
+        await self._terminate_platform(bot_id)
+        logger.info(f"[AstrBot+] 通过可视化视图删除机器人：{bot_id}")
+        return json_response({"deleted": bot_id})
 
     # ------------------------------------------------------------ 插件配置读取
     def _plugin_conf(self) -> dict[str, Any]:
