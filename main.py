@@ -48,7 +48,7 @@ except Exception:  # noqa: BLE001
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
-__version__ = "0.4.5"
+__version__ = "0.4.6"
 
 
 @register(
@@ -188,6 +188,16 @@ class AstrBotPlusPlugin(Star):
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[AstrBot+] 停止机器人 {bot_id} 失败：{exc}")
 
+    def _notify_bots_changed(self) -> None:
+        """机器人配置发生变化后广播给客户端，触发其列表实时刷新。"""
+        sock = getattr(self, "_socket", None)
+        if sock is None:
+            return
+        try:
+            sock._broadcast("bots:changed", {"plugin": PLUGIN_NAME})
+        except Exception:  # noqa: BLE001
+            pass
+
     # --------------------------------------------------------- 视图 API handlers
     async def page_list_bots(self):
         """GET /astrbot_plugin_plus/bots — 返回全部 AstrBot+ 机器人。"""
@@ -213,6 +223,7 @@ class AstrBotPlusPlugin(Star):
         bot = {"type": self._adapter_name(), "enable": enable, "id": bot_id, "nickname": nickname}
         platforms.append(bot)
         await self._save_config()
+        self._notify_bots_changed()
         if enable:
             await self._load_platform(bot)
         logger.info(f"[AstrBot+] 通过可视化视图创建机器人：{bot_id}（enable={enable}）")
@@ -235,6 +246,7 @@ class AstrBotPlusPlugin(Star):
             return error_response(f"未找到机器人「{bot_id}」", status_code=404)
         target["enable"] = enable
         await self._save_config()
+        self._notify_bots_changed()
         if enable:
             await self._load_platform(dict(target))
         else:
@@ -259,6 +271,7 @@ class AstrBotPlusPlugin(Star):
             return error_response(f"未找到机器人「{bot_id}」", status_code=404)
         platforms[:] = remain
         await self._save_config()
+        self._notify_bots_changed()
         await self._terminate_platform(bot_id)
         logger.info(f"[AstrBot+] 通过可视化视图删除机器人：{bot_id}")
         return json_response({"deleted": bot_id})
