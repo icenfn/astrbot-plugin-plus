@@ -506,4 +506,4 @@ class PlusSocketServer:
 
             return __version__
         except Exception:  # noqa: BLE001
-            return "0.4.0"
+            return "0.4.7"

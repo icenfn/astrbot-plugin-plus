@@ -56,8 +56,6 @@ Platform = _try_import("astrbot.core.platform.platform:Platform") or object  # t
 PlatformStatus = _try_import("astrbot.core.platform.platform:PlatformStatus")
 AstrBotMessage = _try_import("astrbot.core.platform.astrbot_message:AstrBotMessage") or object  # type: ignore[assignment]
 MessageMember = _try_import("astrbot.core.platform.astrbot_message:MessageMember") or object  # type: ignore[assignment]
-MessageSession = _try_import("astrbot.core.platform.message_session:MessageSession") or object  # type: ignore[assignment]
-MessageSesion = _try_import("astrbot.core.platform.message_session:MessageSesion") or object  # type: ignore[assignment]
 MessageType = _try_import("astrbot.core.platform.message_type:MessageType")
 PlatformMetadata = _try_import("astrbot.core.platform.platform_metadata:PlatformMetadata") or object  # type: ignore[assignment]
 
@@ -78,10 +76,6 @@ def set_outbound(fn: Callable[[str, str, dict[str, Any]], None] | None) -> None:
     """注册出站回调，用于把机器人回复交给 Socket.io 层。"""
     global _OUTBOUND
     _OUTBOUND = fn
-
-
-def get_adapter(platform_id: str) -> "AstrBotPlusAdapter | None":
-    return _ADAPTERS.get(platform_id)
 
 
 def has_adapters() -> bool:
@@ -359,10 +353,6 @@ async def dispatch_incoming(
         logger.warning(f"[AstrBot+] 派发到主循环失败：{exc}")
         return False
     return True
-
-
-def available_platform_ids() -> list[str]:
-    return list(_ADAPTERS.keys())
 
 
 # --- WebUI 平台 logo 令牌韧性修复 ------------------------------------------------

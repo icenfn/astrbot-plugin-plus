@@ -1,11 +1,18 @@
 # Changelog
 
+## v0.4.7
+
+### 变更
+- 🧹 **清理无用代码**：删除从未被引用的 `get_adapter()` / `available_platform_ids()` 辅助函数，以及误拷入的 `MessageSession` / `MessageSesion`（后者为拼写错误的兼容占位）模块级占位，精简 `plus_platform.py`。
+- 🔖 版本号提升至 `0.4.7`（`main.py` 的 `__version__`、`metadata.yaml` 与健康检查页的回退版本号同步）。
+
+### 说明
+- 🔗 配合客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.4.11`：客户端已移除对「思考内容 / 工具调用信息」标记的解析与占位气泡动画，本插件仅做冗余代码清理，协议与事件保持不变。
+
 ## v0.4.6
 
 ### 新增
 - 🔄 在「机器人管理」视图中启用/停用/删除机器人后，向客户端广播 `bots:changed` 事件，使客户端会话列表实时刷新（无需重连或重启）。
-
-## v0.4.5
 
 ## v0.4.5
 
