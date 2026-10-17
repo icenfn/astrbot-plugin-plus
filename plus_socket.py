@@ -17,6 +17,7 @@
 bots:list                                 机器人（Agent）列表（WebUI「创建机器人」页）
 chat:history                              拉取某个会话的历史消息（客户端历史同步）
 chat:send                                 发送消息（服务端流式回推 chat:delta / chat:done）
+chat:delete                               删除某个会话的服务端历史（客户端长按删除）
 =========================================  ==================================
 
 服务端 → 客户端：``chat:session`` / ``chat:delta`` / ``chat:done`` / ``chat:error`` /
@@ -363,6 +364,29 @@ class PlusSocketServer:
                 {**data, "sessionId": session_id, "botId": bot_id},
             )
             return {"accepted": True}
+
+        @sio.on("chat:delete")
+        async def _chat_delete(sid, data=None):  # noqa: ANN001
+            """删除会话：清空服务端内存历史并广播，所有客户端同步移除该会话。"""
+            data = data or {}
+            session_id = str(
+                data.get("sessionId") or data.get("session_id") or ""
+            ).strip()
+            if not session_id:
+                bot_id = str(data.get("botId") or data.get("bot_id") or "")
+                session_id = f"plus_{bot_id}" if bot_id else ""
+            if not session_id:
+                return {"deleted": False}
+            with self._history_lock:
+                self._history.pop(session_id, None)
+            self._stream_buf.pop(session_id, None)
+            self._routes.pop(session_id, None)
+            self._broadcast(
+                "chat:deleted",
+                {"sessionId": session_id, "botId": data.get("botId") or ""},
+            )
+            logger.info(f"[AstrBot+] 会话已删除：{session_id}")
+            return {"deleted": True, "sessionId": session_id}
 
     # ------------------------------------------------------ 平台适配器桥接 / 出站
     def _register_outbound(self) -> None:

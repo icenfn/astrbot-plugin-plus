@@ -1,3 +1,18 @@
+## v0.4.9
+
+### 移除
+- 🗑️ **删除「机器人管理」可视化视图**：移除 `views/bot-manager/`（HTML/CSS/JS）以及其在 `main.py` 中注册的全部后端 API（`bots` / `bots/create` / `bots/toggle` / `bots/delete`），机器人创建统一回到 AstrBot 原生「机器人 → 创建机器人」页面，避免两套入口配置不一致。
+
+### 新增
+- 🗂️ **机器人列表新增 `botdf` 指纹（128 位 hash）**：由 `md5("astrbot_plus:<botId>")` 生成 32 位十六进制字符串（即 128 bit），在适配器**创建 / 首次实例化**时生成，确定性算法保证重启、重载后指纹不变，客户端可据此长期识别同一机器人。
+- 🔌 **新增 `chat:delete` 事件**：客户端长按删除会话时调用，清空该会话的服务端内存历史与流式缓冲，并向所有客户端广播 `chat:deleted`，实现多端会话同步移除。
+
+### 变更
+- 🏷️ **适配器配置字段 `nickname` → `botname`**：`default_config_tmpl` 改为 `botname`，`bots:list` 输出 `botname` 与 `botdf`；旧配置中的 `nickname` / `name` / `bot_name` 仍兼容读取，已有机器人无需迁移。
+
+### 说明
+- 🔖 版本号提升至 `0.4.9`（`main.py` 的 `__version__` 与 `metadata.yaml` 同步），配合客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.4.25`。
+
 # Changelog
 
 ## v0.4.7

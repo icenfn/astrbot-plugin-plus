@@ -20,6 +20,7 @@ WebUI「机器人 → 创建机器人」的平台选择列表中。
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 import uuid
 from pathlib import Path
@@ -82,6 +83,37 @@ def has_adapters() -> bool:
     return bool(_ADAPTERS)
 
 
+def make_botdf(platform_id: str, salt: str = "") -> str:
+    """Generate a bot's 128-bit fingerprint (``botdf``).
+
+    ``botdf`` 是机器人的稳定指纹：对 ``adapter:botId[:salt]`` 做 MD5，
+    取 32 位十六进制字符串即 **128 bit**。同一机器人重复启动 / 重载时结果
+    不变，因此客户端可据此长期识别同一个机器人；不同 id 之间几乎不可能碰撞。
+
+    这里选择确定性生成而非随机 UUID，是因为适配器实例在 AstrBot 每次重载后
+    都会重新构造，而机器人配置本身不保证被回写 —— 确定性指纹可以让 botdf
+    在重启后保持稳定，无需依赖持久化。
+    """
+    pid = str(platform_id or "").strip() or ADAPTER_NAME
+    raw = f"{ADAPTER_NAME}:{pid}"
+    if salt:
+        raw = f"{raw}:{salt}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def ensure_botdf(cfg: dict[str, Any], platform_id: str) -> str:
+    """Return the bot's ``botdf``, generating and storing it when absent."""
+    existing = str(cfg.get("botdf") or "").strip()
+    if existing:
+        return existing
+    generated = make_botdf(platform_id)
+    try:
+        cfg["botdf"] = generated
+    except Exception:  # noqa: BLE001
+        pass
+    return generated
+
+
 def list_bots() -> list[dict[str, Any]]:
     """返回当前已实例化的 AstrBot+ 机器人（Agent）列表。
 
@@ -92,21 +124,25 @@ def list_bots() -> list[dict[str, Any]]:
     """
     bots: list[dict[str, Any]] = []
     for platform_id, adapter in _ADAPTERS.items():
-        cfg = getattr(adapter, "platform_config", None) or {}
-        # 昵称：WebUI「创建机器人」中填写的 nickname；未填则回退到机器人 id，
-        # 客户端消息列表显示该名字。
-        nickname = (
-            cfg.get("nickname")
+        cfg = dict(getattr(adapter, "platform_config", None) or {})
+        # 显示名统一走 ``botname``（旧配置里的 nickname / name / bot_name 仍兼容读取）；
+        # 未设置时回退到机器人 id，客户端会话列表显示该名字。
+        botname = (
+            cfg.get("botname")
+            or cfg.get("nickname")
             or cfg.get("name")
             or cfg.get("bot_name")
             or ""
         )
-        name = str(nickname) if nickname else str(platform_id)
+        name = str(botname) if botname else str(platform_id)
+        # botdf：机器人 128 位指纹，缺失时在这里补齐（旧机器人自动获得）。
+        botdf = ensure_botdf(cfg, str(platform_id))
         bots.append(
             {
                 "id": str(platform_id),
                 "name": name,
-                "nickname": str(nickname),
+                "botname": str(botname),
+                "botdf": botdf,
                 "platform": ADAPTER_NAME,
                 "enabled": bool(cfg.get("enable", True)),
             }
@@ -225,7 +261,10 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
         "type": ADAPTER_NAME,
         "enable": False,
         "id": ADAPTER_NAME,
-        "nickname": "",
+        # 机器人显示名。字段名与客户端 / 插件列表保持一致，统一为 ``botname``。
+        "botname": "",
+        # 机器人指纹（128 位 hash），创建机器人时生成，用于稳定标识该机器人。
+        "botdf": "",
     },
     adapter_display_name=ADAPTER_DISPLAY_NAME,
     logo_path="logo.png",
@@ -238,6 +277,10 @@ class AstrBotPlusAdapter(Platform):  # type: ignore[misc]
         super().__init__(platform_config, event_queue)
         self.platform_config = platform_config or {}
         self.platform_settings = platform_settings or {}
+        # botdf（128 位指纹）：机器人**创建 / 首次实例化**时生成并写回配置，
+        # 之后重启 / 重载复用同一指纹，客户端据此长期识别同一个机器人。
+        platform_id = str(self.platform_config.get("id") or ADAPTER_NAME)
+        self.botdf = ensure_botdf(self.platform_config, platform_id)
         self._stop = asyncio.Event()
         self.metadata = PlatformMetadata(
             name=ADAPTER_NAME,
