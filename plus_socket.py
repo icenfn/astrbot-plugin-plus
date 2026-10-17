@@ -14,8 +14,6 @@
 =========================================  ==================================
 事件                                        说明
 =========================================  ==================================
-ping                                      心跳，返回 {pong: true}
-config                                    返回服务端能力 / 默认配置
 bots:list                                 机器人（Agent）列表（WebUI「创建机器人」页）
 chat:history                              拉取某个会话的历史消息（客户端历史同步）
 chat:send                                 发送消息（服务端流式回推 chat:delta / chat:done）
@@ -32,10 +30,8 @@ from __future__ import annotations
 
 import asyncio
 import html
-import json
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable
 
 try:  # aiohttp 随 AstrBot 一并提供
@@ -76,11 +72,10 @@ class PlusSocketServer:
         self._routes: dict[str, dict[str, Any]] = {}
         self._outbound_registered = False
         # 历史消息缓存（按 session 存储）与流式缓冲，用于客户端历史同步与列表实时更新。
+        # Bounded in-memory history ring; the client owns durable caching.
         self._history: dict[str, list[dict[str, Any]]] = {}
         self._history_lock = threading.Lock()
         self._stream_buf: dict[str, str] = {}
-        self._history_file = Path(__file__).parent / "data" / "history.json"
-        self._history_loaded = False
 
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -153,38 +148,16 @@ class PlusSocketServer:
         logger.info("[AstrBot+] Socket.io 服务端已停止。")
 
     # ------------------------------------------------------------------ 历史消息
-    def _load_history(self) -> None:
-        if self._history_loaded:
-            return
-        self._history_loaded = True
-        try:
-            if self._history_file.exists():
-                with open(self._history_file, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    for k, v in data.items():
-                        if isinstance(v, list):
-                            self._history[str(k)] = v
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[AstrBot+] 读取历史消息失败：{exc}")
-
-    def _save_history(self) -> None:
-        try:
-            self._history_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._history_file.with_suffix(".json.tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._history, f, ensure_ascii=False)
-            tmp.replace(self._history_file)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"[AstrBot+] 写入历史消息失败：{exc}")
-
     def get_history(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        """Return the most recent messages for a session.
+
+        History is kept in a bounded in-memory ring only: the CLIENT caches every
+        conversation locally and pulls it exactly once, so the server never needs to
+        persist (or re-send) history across restarts.
+        """
         with self._history_lock:
-            self._load_history()
             items = list(self._history.get(session_id, []))
-        if limit and limit > 0:
-            return items[-limit:]
-        return items
+        return items[-limit:] if limit and limit > 0 else items
 
     def _record_message(
         self, session_id: str, role: str, text: str, bot_id: str = ""
@@ -197,12 +170,10 @@ class PlusSocketServer:
             "ts": time.time(),
         }
         with self._history_lock:
-            self._load_history()
             bucket = self._history.setdefault(session_id, [])
             bucket.append(msg)
             if len(bucket) > 500:
                 del bucket[:-500]
-            self._save_history()
         return msg
 
     def _record_and_broadcast(
@@ -312,9 +283,9 @@ class PlusSocketServer:
                 self._routes.pop(key, None)
             logger.info(f"[AstrBot+] 客户端已断开：{sid}（reason={reason}）")
 
-        @sio.on("ping")
-        async def _ping(sid, data=None):  # noqa: ANN001
-            return {"pong": True}
+        # NOTE: no `ping` / `config` events. Socket.io has its own engine-level
+        # heartbeat (see ping_interval/ping_timeout above), and the plugin version
+        # is already rendered on the /health page — both were redundant round-trips.
 
         @sio.on("config")
         async def _config(sid, data=None):  # noqa: ANN001
@@ -326,7 +297,7 @@ class PlusSocketServer:
 
         @sio.on("bots:list")
         async def _bots_list(sid, data=None):  # noqa: ANN001
-            return await self._safe(self._fetch_bots_async)
+            return await self._safe(self._fetch_bots)
 
         @sio.on("chat:history")
         async def _chat_history(sid, data=None):  # noqa: ANN001
@@ -495,9 +466,6 @@ class PlusSocketServer:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"[AstrBot+] 读取机器人列表失败：{exc}")
             return []
-
-    async def _fetch_bots_async(self) -> list[dict[str, Any]]:
-        return self._fetch_bots()
 
     # ------------------------------------------------------------------ 杂项
     def _plugin_version(self) -> str:
