@@ -20,15 +20,15 @@
         <nav class="nav-list" id="nav-list">
           <button class="nav-item is-active" data-view="overview">
             <span class="nav-icon" aria-hidden="true">◫</span>
-            <span data-i18n="nav.overview">概览</span>
+            <span>概览</span>
           </button>
           <button class="nav-item" data-view="users">
             <span class="nav-icon" aria-hidden="true">☰</span>
-            <span data-i18n="nav.users">用户</span>
+            <span>用户</span>
           </button>
           <button class="nav-item" data-view="agents">
             <span class="nav-icon" aria-hidden="true">✦</span>
-            <span data-i18n="nav.agents">智能体</span>
+            <span>智能体</span>
           </button>
         </nav>
         <div class="nav-foot">
@@ -45,7 +45,7 @@
             <p id="view-desc" class="muted"></p>
           </div>
           <div class="topbar-actions">
-            <button class="btn" id="btn-reload" data-i18n="action.reload">刷新</button>
+            <button class="btn" id="btn-reload">刷新</button>
             <button class="btn primary" id="btn-create" hidden></button>
           </div>
         </header>
@@ -53,17 +53,17 @@
         <!-- 概览 -->
         <section class="view is-active" data-view="overview">
           <div class="tiles">
-            <div class="tile"><span class="tile-label" data-i18n="stat.users">注册用户</span><strong id="stat-users">—</strong></div>
-            <div class="tile"><span class="tile-label" data-i18n="stat.agents">智能体</span><strong id="stat-agents">—</strong></div>
-            <div class="tile"><span class="tile-label" data-i18n="stat.today">今日消息</span><strong id="stat-today">—</strong></div>
-            <div class="tile"><span class="tile-label" data-i18n="stat.online">在线连接</span><strong id="stat-online">—</strong></div>
+            <div class="tile"><span class="tile-label">注册用户</span><strong id="stat-users">—</strong></div>
+            <div class="tile"><span class="tile-label">智能体</span><strong id="stat-agents">—</strong></div>
+            <div class="tile"><span class="tile-label">今日消息</span><strong id="stat-today">—</strong></div>
+            <div class="tile"><span class="tile-label">在线连接</span><strong id="stat-online">—</strong></div>
           </div>
           <div class="note">
-            <h3 data-i18n="overview.title">运行方式</h3>
+            <h3>运行方式</h3>
             <ul>
-              <li><span data-i18n="overview.http">客户端主动查询（登录 / 拉列表 / 拉历史）走 HTTP API，携带 JWT。</span></li>
-              <li><span data-i18n="overview.socket">服务端主动推送（消息、流式回复、私聊）走 Socket.IO，握手用同一 Token。</span></li>
-              <li><span data-i18n="overview.scope">IM 端口只提供 /api、/socket.io、/health，管理页面仅在 AstrBot WebUI 内可见。</span></li>
+              <li><span>客户端主动查询（登录 / 拉列表 / 拉历史）走 HTTP API，携带 JWT。</span></li>
+              <li><span>服务端主动推送（消息、流式回复、私聊）走 Socket.IO，握手用同一 Token。</span></li>
+              <li><span>IM 端口只提供 /api、/socket.io、/health，管理页面仅在 AstrBot WebUI 内可见。</span></li>
             </ul>
           </div>
         </section>
@@ -74,19 +74,19 @@
             <table class="table" id="table-users">
               <thead>
                 <tr>
-                  <th data-i18n="user.email">邮箱</th>
-                  <th data-i18n="user.username">用户名</th>
-                  <th data-i18n="user.created">创建时间</th>
-                  <th data-i18n="user.status">状态</th>
-                  <th data-i18n="user.agents">可用智能体</th>
-                  <th data-i18n="user.tokens">Token 用量</th>
-                  <th class="col-ops" data-i18n="user.ops">操作</th>
+                  <th>邮箱</th>
+                  <th>用户名</th>
+                  <th>创建时间</th>
+                  <th>状态</th>
+                  <th>可用智能体</th>
+                  <th>Token 用量</th>
+                  <th class="col-ops">操作</th>
                 </tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
-          <p class="foot-hint" data-i18n="user.hint">「可用智能体」为空表示该用户可用全部智能体。</p>
+          <p class="foot-hint">「可用智能体」为空表示该用户可用全部智能体。</p>
         </section>
 
         <!-- 智能体 -->
@@ -95,17 +95,17 @@
             <table class="table" id="table-agents">
               <thead>
                 <tr>
-                  <th data-i18n="agent.id">ID</th>
-                  <th data-i18n="agent.name">显示名</th>
-                  <th data-i18n="agent.fingerprint">指纹</th>
-                  <th data-i18n="agent.status">状态</th>
-                  <th class="col-ops" data-i18n="agent.ops">操作</th>
+                  <th>ID</th>
+                  <th>显示名</th>
+                  <th>指纹</th>
+                  <th>状态</th>
+                  <th class="col-ops">操作</th>
                 </tr>
               </thead>
               <tbody></tbody>
             </table>
           </div>
-          <p class="foot-hint" data-i18n="agent.hint">新建智能体会在平台配置中追加一个 astrbot_plus 适配器并即时热加载。</p>
+          <p class="foot-hint">新建智能体会在平台配置中追加一个 astrbot_plus 适配器并即时热加载。</p>
         </section>
       </main>
     </div>
@@ -120,7 +120,7 @@
         </header>
         <div class="drawer-body" id="drawer-body"></div>
         <footer class="drawer-foot">
-          <button class="btn" data-close="1" data-i18n="action.cancel">取消</button>
+          <button class="btn" data-close="1">取消</button>
           <button class="btn primary" id="drawer-submit">确定</button>
         </footer>
       </aside>
@@ -133,7 +133,7 @@
         <h3 id="dialog-title">确认</h3>
         <p id="dialog-text" class="muted"></p>
         <div class="dialog-foot">
-          <button class="btn" data-close="1" data-i18n="action.cancel">取消</button>
+          <button class="btn" data-close="1">取消</button>
           <button class="btn danger" id="dialog-ok">确定</button>
         </div>
       </div>

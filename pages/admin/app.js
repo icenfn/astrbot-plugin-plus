@@ -103,29 +103,6 @@ function fmtNum(n) {
   return v.toLocaleString("zh-CN");
 }
 
-/* ---------------------------- i18n ---------------------------- */
-
-const dict = {};
-
-/** 优先用桥接翻译（bridge.t(key, fallback)），退化为本地字典。 */
-function t(key, fallback) {
-  if (bridge && typeof bridge.t === "function") {
-    try {
-      const v = bridge.t(key, fallback);
-      if (v && v !== key) return v;
-    } catch { /* 忽略，走下一条 */ }
-  }
-  return dict[key] || fallback || key;
-}
-
-function applyI18n() {
-  $$("[data-i18n]").forEach((el) => {
-    const key = el.dataset.i18n;
-    const text = t(key, el.textContent.trim());
-    if (text) el.textContent = text;
-  });
-}
-
 /* ---------------------------- Toast ---------------------------- */
 
 function toast(message, kind) {
@@ -249,8 +226,8 @@ function switchView(name) {
   $$(".view").forEach((v) => v.classList.toggle("is-active", v.dataset.view === name));
 
   const meta = VIEW_META[name];
-  $("#view-title").textContent = t(`pages.${PAGE_NAME}.${name}.title`, meta.title);
-  $("#view-desc").textContent = t(`pages.${PAGE_NAME}.${name}.description`, meta.desc);
+  $("#view-title").textContent = meta.title;
+  $("#view-desc").textContent = meta.desc;
 
   const createBtn = $("#btn-create");
   if (name === "users") {
@@ -759,7 +736,6 @@ async function boot() {
         state.ctx = next;
         const th = readThemeFromContext(next);
         if (th) applyTheme(th);
-        applyI18n();
       });
     } catch (err) {
       console.warn("[AstrBot+] onContext 订阅失败：", err);
@@ -775,7 +751,6 @@ async function boot() {
     });
   }
 
-  applyI18n();
   switchView("overview");
 
   // 首屏并行拉取：概览 + 两张表（表数据供多选区复用）

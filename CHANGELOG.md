@@ -4,13 +4,17 @@
 
 ### 重构
 - 🎨 **管理界面重写并迁移到官方插件 Pages 规范**：旧视图放在 `views/plus-admin/`，不是 AstrBot 插件页面规范目录，WebUI 无法识别。现按官方规范改为 `pages/admin/`（`index.html` + `style.css` + `app.js`），旧目录整体移除。界面重做为左侧导航（概览 / 用户 / 智能体）+ 右侧内容区 + 抽屉式表单，支持明暗主题与窄屏自适应。
-- 🌓 **主题与国际化接入桥接上下文**：读取 `bridge.getContext().isDark` 同步 `<html data-theme>`，并 `onContext()` 订阅主题/语言切换；文案集中在 `.astrbot-plugin/i18n/zh-CN.json` 与 `en-US.json` 的 `pages.admin` 节点，页面通过 `bridge.t()` 渲染。
+- 🌓 **主题跟随 WebUI**：读取 `bridge.getContext().isDark` 同步 `<html data-theme>`，并 `onContext()` 订阅主题切换，始终与 Dashboard 明暗模式一致。页面文案直接内置于模板，不引入 i18n 资源文件。
 
 ### 修复
 - 🐛 **「加载失败 Failed to fetch」**：根因是插件页面运行在 WebUI 的受限 iframe（opaque origin）中，页面里用裸 `fetch` 请求相对地址会被拦截。现统一改走 `window.AstrBotPluginPage` 桥接的 `apiGet` / `apiPost`，由 Dashboard 转发并注入鉴权，不再有跨域失败。
 - 🐛 **管理 API 方法与桥接能力不兼容**：桥接只提供 GET / POST，旧后端使用 `PATCH` / `DELETE` 且把目标对象放在路径参数里，前端根本发不出来。现九条路由全部改为 **GET（查询）+ POST（写入）**，写操作目标由请求体 `id` 指定，不再使用路径参数。
 - 🐛 **桥接 endpoint 前缀缺失**：后端注册路径是 `/<plugin_name>/admin/**`，桥接会自动补插件名前缀，因此页面侧 endpoint 必须保留 `admin/` 段（如 `admin/users`），否则转发后 404。
 - 🐛 **原生 `alert` / `confirm` 在沙箱内被拦截**：改为自绘确认框与 Toast 提示，删除等破坏性操作可正常二次确认。
+
+### 优化
+- 📱 **页面 UI 响应式重做**：新增 1080px / 860px / 560px / 380px 四档断点。平板收窄侧栏并让四指标变两列；窄屏时导航转为顶部横向条（可横向滑动）；手机端表格改为横向滚动而非压缩裁切，抽屉改为自底部升起、操作按钮占满宽度；超窄屏导航仅保留图标，指标改单列。
+- 📐 **视口适配修正**：使用 `100dvh` 替代 `100vh`，避免移动端地址栏伸缩导致导航被截断；补充 `-webkit-text-size-adjust` 防止横竖屏切换时字号被放大。
 
 ### 变更
 - 🗂️ **`metadata.yaml` 改用 PyYAML 解析**：`_read_plugin_version()` 的行扫描（`line.startswith("version:")`）替换为 `yaml.safe_load()` 的 `_read_metadata()`，正确支持引号、多行与嵌套结构；解析失败只记 debug 日志并回退，不阻塞插件加载。`metadata.yaml` 仍是版本号唯一来源。

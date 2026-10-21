@@ -38,6 +38,9 @@
 
 html, body { height: 100%; }
 
+/* 防止 iOS 横竖屏切换时自动放大字号 */
+html { -webkit-text-size-adjust: 100%; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -54,6 +57,7 @@ body {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
   min-height: 100vh;
+  min-height: 100dvh; /* 移动端地址栏伸缩时保持整屏 */
 }
 
 /* ---------- 左侧导航 ---------- */
@@ -67,6 +71,7 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
 }
 
 .nav-brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px; }
@@ -175,7 +180,15 @@ body {
 /* ============================ 表格 ============================ */
 .table-card {
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  /* 窄屏时表格改为横向滚动，避免列被压缩或被 overflow:hidden 裁掉 */
+  overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.table-card::-webkit-scrollbar { height: 8px; }
+.table-card::-webkit-scrollbar-thumb {
+  background: var(--line); border-radius: 4px;
 }
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .table th, .table td {
@@ -293,21 +306,112 @@ td.error { color: var(--danger); }
 .toast.is-err { border-left-color: var(--danger); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-/* ============================ 响应式 ============================ */
+/* ============================ 响应式 ============================
+ * 断点设计：
+ *   ≤1080px  平板横屏：导航收窄、四指标变两列
+ *   ≤860px   平板竖屏 / 小窗：导航转为顶部横向条
+ *   ≤560px   手机：内容收紧、表单与按钮占满宽度
+ *   ≤380px   超窄屏：导航仅留图标，进一步压缩留白
+ * ============================================================== */
+
+/* ---------- 平板横屏 ---------- */
+@media (max-width: 1080px) {
+  .app { grid-template-columns: 180px minmax(0, 1fr); }
+  .main { padding: 18px 18px 34px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .table th, .table td { padding: 10px 11px; }
+}
+
+/* ---------- 导航转为顶部横向条 ---------- */
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
+
   .nav {
-    position: static; height: auto; flex-direction: row;
-    align-items: center; gap: 10px; padding: 12px 14px;
+    position: sticky; top: 0; z-index: 20;
+    height: auto; flex-direction: row; align-items: center;
+    gap: 10px; padding: 10px 14px;
     border-right: 0; border-bottom: 1px solid var(--line);
-    overflow-x: auto;
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
-  .nav-brand { margin-right: 6px; }
-  .nav-list { flex-direction: row; gap: 4px; }
-  .nav-foot { margin: 0 0 0 auto; border-top: 0; padding: 0; flex-direction: row; gap: 10px; }
-  .main { padding: 18px 16px 34px; }
-  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nav::-webkit-scrollbar { display: none; }
+
+  .nav-brand { margin-right: 4px; flex: none; }
+  .nav-list { flex-direction: row; gap: 4px; flex: none; }
+  .nav-item { padding: 7px 12px; white-space: nowrap; }
+  .nav-item span:last-child { white-space: nowrap; }
+
+  .nav-foot {
+    margin: 0 0 0 auto; padding: 0; border-top: 0;
+    flex-direction: row; align-items: center; gap: 10px;
+    flex: none; white-space: nowrap;
+  }
+
+  .main { padding: 16px 14px 30px; }
   .drawer-panel { width: 100%; }
+  .topbar { margin-bottom: 16px; }
+}
+
+/* ---------- 手机 ---------- */
+@media (max-width: 560px) {
+  body { font-size: 13.5px; }
+  .main { padding: 14px 11px 28px; }
+
+  /* 标题与操作按钮上下堆叠，按钮占满一行更好点 */
+  .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .topbar-actions { width: 100%; }
+  .topbar-actions .btn { flex: 1 1 auto; text-align: center; }
+  .topbar-title h1 { font-size: 17px; }
+
+  .tiles { gap: 9px; margin-bottom: 14px; }
+  .tile { padding: 12px 13px; }
+  .tile strong { font-size: 19px; }
+
+  .note { padding: 13px 14px; }
+  .note ul { padding-left: 16px; }
+
+  /* 表格：横向滚动 + 关键列保持可读宽度 */
+  .table { font-size: 12.5px; }
+  .table th, .table td { padding: 9px 10px; }
+  .table thead th { font-size: 11px; }
+  td.ops .btn { margin-left: 4px; }
+
+  .foot-hint { font-size: 11px; }
+
+  /* 抽屉改为自底部升起，更符合移动端手感 */
+  .drawer-panel {
+    top: auto; left: 0; right: 0; bottom: 0;
+    width: 100%; max-height: 88vh;
+    border-left: 0; border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+  }
+  .drawer-body { padding: 14px; }
+  .drawer-head { padding: 13px 14px; }
+  .drawer-foot { padding: 12px 14px; }
+  .drawer-foot .btn { flex: 1 1 auto; }
+
+  .dialog { padding: 16px; top: 50%; }
+  .dialog-foot .btn { flex: 1 1 auto; }
+
+  .agent-picker { max-height: 170px; }
+
+  .toasts { left: 12px; right: 12px; bottom: 12px; align-items: stretch; }
+  .toast { max-width: none; }
+}
+
+/* ---------- 超窄屏 ---------- */
+@media (max-width: 380px) {
+  /* 导航只保留图标，靠 active 态区分 */
+  .nav { padding: 8px 10px; gap: 6px; }
+  .nav-item { padding: 7px 10px; }
+  .nav-item span:last-child { display: none; }
+  .nav-icon { width: auto; font-size: 15px; }
+  .nav-brand .brand-text small { display: none; }
+  .nav-foot .ver { display: none; }
+
+  .tiles { grid-template-columns: 1fr; }
+  .main { padding: 12px 9px 24px; }
 }
 
 [hidden] { display: none !important; }

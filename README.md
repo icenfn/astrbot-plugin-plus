@@ -41,7 +41,8 @@
 
 - 页面脚本通过 `window.AstrBotPluginPage` 桥接（`apiGet` / `apiPost`）访问后端，运行在 WebUI 的受限 iframe 中，**不使用裸 `fetch`**，也不读取 Dashboard 的 Cookie / LocalStorage；
 - 后端 API 统一注册在 `/<插件名>/admin/*`，全部为 **GET（查询）+ POST（写入）**，写操作目标由请求体 `id` 指定；
-- 主题跟随 WebUI（`data-theme`），文案取自 `.astrbot-plugin/i18n/<locale>.json` 的 `pages.admin`。
+- 主题跟随 WebUI（`data-theme`），文案直接内置于页面模板，不依赖 i18n 资源文件；
+- 响应式适配桌面、平板与手机：窄屏下导航变顶部横向条，表格改为横向滚动，抽屉自底部升起。
 
 ## 指令
 
