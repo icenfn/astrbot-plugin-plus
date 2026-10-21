@@ -33,23 +33,69 @@ except Exception:  # noqa: BLE001
     json_response = None  # type: ignore[assignment]
     request = None  # type: ignore[assignment]
 
-try:  # AstrBot 通常以包形式加载插件；回退保证独立加载也能工作。
-    from .plus_socket import PlusSocketServer
-except ImportError:  # noqa: BLE001
-    from plus_socket import PlusSocketServer
+def _import_sibling(name: str) -> Any:
+    """导入同目录兄弟模块。
 
-try:
-    from . import plus_db as db
-except Exception:  # noqa: BLE001
-    import plus_db as db  # type: ignore[no-redef]
+    只有当「模块定位失败」（没有父包 / 找不到模块）时才回退到顶层导入；
+    兄弟模块内部真正抛出的异常必须原样向外传播 —— 否则会被下面的裸导入
+    再吞一次，最终只剩下一个误导性的 ``No module named 'xxx'``。
+    """
+    import importlib
+    import importlib.util
+    import sys
+
+    def _is_lookup_error(exc: BaseException) -> bool:
+        if not isinstance(exc, ImportError):
+            return False
+        msg = str(exc)
+        return (
+            "no known parent package" in msg
+            or "attempted relative import" in msg
+            or "No module named" in msg
+        )
+
+    pkg = __package__
+    if pkg:
+        try:
+            mod = importlib.import_module(f".{name}", pkg)
+            # 登记裸模块名别名，保证后续 ``import plus_db`` 命中同一对象，
+            # 不会二次执行同一文件（否则 SQLModel 会重复声明同名表）。
+            sys.modules.setdefault(name, mod)
+            return mod
+        except ImportError as exc:
+            if not _is_lookup_error(exc):
+                raise
+
+    cached = sys.modules.get(name)
+    if cached is not None:
+        return cached
+    try:
+        return importlib.import_module(name)
+    except ImportError as exc:
+        if not _is_lookup_error(exc):
+            raise
+
+    # 兜底：按文件路径加载，并登记到 sys.modules 供后续复用
+    file = Path(__file__).with_name(f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, file)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法加载插件模块 {name}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+plus_socket = _import_sibling("plus_socket")
+PlusSocketServer = plus_socket.PlusSocketServer
+
+db = _import_sibling("plus_db")
 
 try:  # 导入平台适配器模块，触发 @register_platform_adapter 注册。
-    from . import plus_platform  # noqa: F401
-except Exception:  # noqa: BLE001
-    try:
-        import plus_platform  # type: ignore  # noqa: F401
-    except Exception:  # noqa: BLE001
-        logger.warning("[AstrBot+] 平台适配器模块加载失败，astrbot_plus 将不可用。")
+    plus_platform: Any = _import_sibling("plus_platform")
+except Exception as exc:  # noqa: BLE001
+    plus_platform = None  # type: ignore[assignment]
+    logger.warning(f"[AstrBot+] 平台适配器模块加载失败，astrbot_plus 将不可用：{exc}")
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
@@ -174,10 +220,7 @@ class AstrBotPlusPlugin(Star):
         if sock is None:
             return
         try:
-            asyncio.run_coroutine_threadsafe(
-                sock.sio.emit("bots:changed", {"plugin": PLUGIN_NAME}),
-                sock._loop,
-            )
+            sock.broadcast("bots:changed", {"plugin": PLUGIN_NAME})
         except Exception:  # noqa: BLE001
             pass
 
@@ -213,14 +256,19 @@ class AstrBotPlusPlugin(Star):
             return dict(cfg)
         return {}
 
-    def _start_socket(self, data_dir: Path) -> PlusSocketServer:
+    def _start_socket(self, data_dir: Path) -> PlusSocketServer | None:
+        """构建并启动 IM 服务端；失败时只记录日志，不影响插件其余功能加载。"""
         conf = self._plugin_conf()
-        server = PlusSocketServer(
-            host=str(conf.get("listen_host") or "0.0.0.0"),
-            port=int(conf.get("listen_port") or 6199),
-            data_dir=data_dir,
-            version=__version__,
-        )
+        try:
+            server = PlusSocketServer(
+                host=str(conf.get("listen_host") or "0.0.0.0"),
+                port=int(conf.get("listen_port") or 6199),
+                data_dir=data_dir,
+                version=__version__,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"[AstrBot+] IM 服务端初始化失败：{exc}")
+            return None
         server.start()
         return server
 

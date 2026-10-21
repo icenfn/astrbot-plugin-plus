@@ -55,18 +55,53 @@ except Exception:  # noqa: BLE001
 
     logger = _logging.getLogger("astrbot_plugin_plus")
 
-try:  # 平台适配器：注册后 AstrBot WebUI 的「创建机器人」会出现 astrbot_plus
-    from . import plus_platform
-except Exception:  # noqa: BLE001
-    try:
-        import plus_platform  # type: ignore
-    except Exception:  # noqa: BLE001
-        plus_platform = None  # type: ignore[assignment]
+def _load_sibling(name: str) -> Any:
+    """以稳定模块名导入同目录兄弟模块。
 
-try:
-    from . import plus_db as db
+    AstrBot 既可能以包形式（``astrbot_plugin_plus.plus_socket``）加载插件，
+    也可能以顶层模块名加载；若两条路径各导入一次，同一份 ``plus_db`` 会被
+    执行两次，从而在同一个 ``SQLModel.metadata`` 上重复声明 ``users`` 等表，
+    抛出 ``Table 'users' is already defined``。这里统一先按所属包导入，并把
+    结果登记到 ``sys.modules``，保证裸导入命中同一个模块对象。
+    """
+    import importlib
+    import importlib.util
+    import sys
+
+    pkg = __package__
+    if pkg:  # 1) 包内相对导入（生产环境）
+        try:
+            mod = importlib.import_module(f".{name}", pkg)
+            sys.modules.setdefault(name, mod)
+            return mod
+        except Exception:  # noqa: BLE001
+            pass
+
+    cached = sys.modules.get(name)
+    if cached is not None:  # 2) 复用已加载的顶层模块
+        return cached
+    try:  # 3) 顶层导入（插件目录可能已在 sys.path 中）
+        return importlib.import_module(name)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 4) 兜底：按文件路径加载，仍登记到 sys.modules 以便后续复用
+    file = Path(__file__).with_name(f"{name}.py")
+    spec = importlib.util.spec_from_file_location(name, file)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"无法加载插件模块 {name}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+try:  # 平台适配器：注册后 AstrBot WebUI 的「创建机器人」会出现 astrbot_plus
+    plus_platform: Any = _load_sibling("plus_platform")
 except Exception:  # noqa: BLE001
-    import plus_db as db  # type: ignore[no-redef]
+    plus_platform = None  # type: ignore[assignment]
+
+db = _load_sibling("plus_db")
 
 DEFAULT_PORT = 6199
 JWT_ALG = "HS256"
@@ -108,6 +143,15 @@ class PlusSocketServer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: Any = None
         self._runner: Any = None
+        self._site: Any = None
+        # 生命周期状态：_started 在启动流程（建表 / 监听）结束后置位；
+        # _stopping 记录「启动过程中已被要求停止」，避免在 bootstrap 尚未完成时
+        # 调用 loop.stop() 触发 "Event loop stopped before Future completed"。
+        import threading as _threading
+
+        self._lifecycle_lock = _threading.Lock()
+        self._started = _threading.Event()
+        self._stopping = False
         self._available = (
             socketio is not None and web is not None and bcrypt is not None and pyjwt is not None
         )
@@ -200,14 +244,32 @@ class PlusSocketServer:
                 "[AstrBot+] 缺少 aiohttp/socketio/bcrypt/PyJWT 依赖，IM 服务端未启动。"
             )
             return
-        if self._thread and getattr(self._thread, "is_alive", lambda: False)():
-            return
         import threading
 
-        self._thread = threading.Thread(
-            target=self._run, name="astrbot-plus-im", daemon=True
-        )
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._thread and getattr(self._thread, "is_alive", lambda: False)():
+                return
+            self._stopping = False
+            self._started.clear()
+            self._thread = threading.Thread(
+                target=self._run, name="astrbot-plus-im", daemon=True
+            )
+            self._thread.start()
+
+    async def _bootstrap(self) -> None:
+        """在当前线程的事件循环里完成建表与监听，全部成功后才返回。"""
+        try:
+            await db.create_all()
+        except Exception as exc:  # noqa: BLE001
+            # 异步建表失败不致命：admin_ensure_schema 会用 sqlite3 同步补齐
+            # 同样的表结构（CREATE TABLE IF NOT EXISTS），服务仍可继续启动。
+            logger.warning(f"[AstrBot+] 异步建表失败，改用同步建表兜底：{exc}")
+            db.admin_ensure_schema()
+
+        self._runner = web.AppRunner(self._app)  # type: ignore[union-attr]
+        await self._runner.setup()
+        self._site = web.TCPSite(self._runner, self.host, self.port)
+        await self._site.start()
 
     def _run(self) -> None:
         loop = asyncio.new_event_loop()
@@ -215,27 +277,79 @@ class PlusSocketServer:
         asyncio.set_event_loop(loop)
         self._register_outbound()
         try:
-            loop.run_until_complete(db.create_all())
-            self._runner = web.AppRunner(self._app)  # type: ignore[union-attr]
-            loop.run_until_complete(self._runner.setup())
-            site = web.TCPSite(self._runner, self.host, self.port)
-            loop.run_until_complete(site.start())
+            loop.run_until_complete(self._bootstrap())
+            self._started.set()
+            if self._stopping:  # 启动过程中已要求停止：直接走清理
+                logger.info("[AstrBot+] 启动完成前收到停止请求，IM 服务端不进入服务状态。")
+                return
             logger.info(f"[AstrBot+] IM 服务端已启动：http://{self.host}:{self.port}")
             loop.run_forever()
         except Exception as exc:  # noqa: BLE001
             import traceback
+
             logger.error(f"[AstrBot+] IM 服务端启动失败：{exc}\n{traceback.format_exc()}")
         finally:
+            self._started.set()
+            self._teardown(loop)
+
+    def _teardown(self, loop: asyncio.AbstractEventLoop) -> None:
+        """清理 aiohttp 资源并关闭事件循环（幂等、可重入）。"""
+        runner = self._runner
+        self._runner = None
+        self._site = None
+        if runner is not None and not loop.is_closed():
             try:
-                if self._runner is not None:
-                    loop.run_until_complete(self._runner.cleanup())
+                loop.run_until_complete(runner.cleanup())
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"[AstrBot+] 清理 IM 服务端资源时忽略异常：{exc}")
+        if not loop.is_closed():
+            try:
+                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
             except Exception:  # noqa: BLE001
                 pass
             loop.close()
 
-    def stop(self) -> None:
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+    def stop(self, timeout: float = 5.0) -> None:
+        """停止 IM 服务端。
+
+        只有启动流程已经结束（``_started`` 置位）时才向事件循环投递 ``stop()``，
+        否则会在 ``run_until_complete(self._bootstrap())`` 尚未完成时中断它，
+        表现为 ``Event loop stopped before Future completed``。
+        """
+        import threading
+
+        with self._lifecycle_lock:
+            self._stopping = True
+            loop = self._loop
+            thread = self._thread
+            started = self._started.is_set()
+
+        if loop is not None and not loop.is_closed():
+            if started and loop.is_running():
+                try:
+                    loop.call_soon_threadsafe(loop.stop)
+                except RuntimeError:  # 循环已关闭
+                    pass
+            elif not started:
+                # 启动中：投递一个唤醒回调，让 run_until_complete 结束后尽快退出
+                try:
+                    loop.call_soon_threadsafe(lambda: None)
+                except RuntimeError:
+                    pass
+
+        if (
+            thread is not None
+            and getattr(thread, "is_alive", lambda: False)()
+            and thread is not threading.current_thread()
+        ):
+            thread.join(timeout=timeout)
+        self._thread = None
         logger.info("[AstrBot+] IM 服务端已停止。")
 
     def call_on_loop(self, coro: Any) -> Any:

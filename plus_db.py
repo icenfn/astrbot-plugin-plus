@@ -21,6 +21,7 @@ from typing import Any, Iterable
 from sqlmodel import Field, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncEngine
+from sqlalchemy.pool import NullPool
 
 
 class User(SQLModel, table=True):
@@ -32,6 +33,9 @@ class User(SQLModel, table=True):
     """
 
     __tablename__ = "users"
+    # 插件热重载时同一文件可能被以不同模块名再次导入；重复声明同名表时
+    # 用 extend_existing 覆盖而不是抛 ``Table 'users' is already defined``。
+    __table_args__ = {"extend_existing": True}
 
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(index=True, unique=True)
@@ -56,6 +60,7 @@ class Message(SQLModel, table=True):
     """
 
     __tablename__ = "messages"
+    __table_args__ = {"extend_existing": True}
 
     id: int | None = Field(default=None, primary_key=True)
     peer_type: str = Field(index=True)  # "agent" | "user"
@@ -70,6 +75,7 @@ class TokenUsage(SQLModel, table=True):
     """用户 token 累计用量（近似值，视图展示用）。"""
 
     __tablename__ = "token_usage"
+    __table_args__ = {"extend_existing": True}
 
     user_id: int = Field(primary_key=True)
     total_tokens: int = 0
@@ -89,7 +95,9 @@ def init_db(db_path: str | Path) -> None:
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     url = f"sqlite+aiosqlite:///{db_path}"
-    _engine = create_async_engine(url, echo=False, future=True)
+    # NullPool：不跨事件循环复用连接。插件热重载时旧事件循环已关闭，
+    # 若复用池中绑定在旧循环上的 aiosqlite 连接会报「attached to a different loop」。
+    _engine = create_async_engine(url, echo=False, future=True, poolclass=NullPool)
     _session_maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -97,9 +105,8 @@ async def create_all() -> None:
     """建表（幂等）。在 Socket.io 服务端启动后、接受连接前调用。"""
     # create_all 在异步引擎上需要走 sync engine 的元数据创建；这里直接用
     # aiosqlite 连接执行 SQLModel.metadata.create_all。
-    from sqlalchemy.ext.asyncio import AsyncEngine
-
-    assert _engine is not None  # noqa: S101
+    if _engine is None:
+        raise RuntimeError("数据库引擎尚未初始化，请先调用 init_db()")
     async with _engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
