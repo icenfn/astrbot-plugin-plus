@@ -1,0 +1,12 @@
+{
+  "listen_host": {
+    "description": "Socket.io 服务端监听地址，默认 0.0.0.0（对外暴露的唯一端口）。",
+    "type": "string",
+    "default": "0.0.0.0"
+  },
+  "listen_port": {
+    "description": "Socket.io 服务端监听端口。客户端连接 ws://<host>:<port>。",
+    "type": "int",
+    "default": 6199
+  }
+}

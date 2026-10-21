@@ -1,0 +1,37 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+       background: #f5f6f8; color: #1f2329; padding: 16px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.tab { padding: 8px 16px; border: none; background: transparent; cursor: pointer;
+       border-bottom: 2px solid transparent; font-size: 14px; }
+.tab.active { border-bottom-color: #3370ff; color: #3370ff; }
+.pane { display: none; }
+.pane.active { display: block; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.card { background: #fff; border-radius: 10px; padding: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.card .num { font-size: 28px; font-weight: 600; color: #3370ff; }
+.card .lbl { font-size: 12px; color: #8f959e; margin-top: 4px; }
+.bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+button { padding: 6px 14px; border: 1px solid #d0d3d6; background: #fff;
+         border-radius: 6px; cursor: pointer; font-size: 13px; }
+button.primary { background: #3370ff; color: #fff; border-color: #3370ff; }
+button.danger { color: #d83931; border-color: #f3b9b6; }
+table { width: 100%; border-collapse: collapse; background: #fff;
+        border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+th, td { padding: 10px 12px; text-align: left; font-size: 13px;
+         border-bottom: 1px solid #f0f1f2; }
+th { background: #fafbfc; color: #646a73; font-weight: 500; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.4);
+         display: flex; align-items: center; justify-content: center; z-index: 999; }
+.modal.hidden { display: none; }
+.modal-body { background: #fff; border-radius: 10px; padding: 20px;
+              width: 420px; max-width: 90vw; }
+.modal-body h3 { margin: 0 0 12px; font-size: 16px; }
+.modal-body label { display: block; font-size: 12px; color: #646a73; margin: 8px 0 4px; }
+.modal-body input, .modal-body select { width: 100%; padding: 6px 8px;
+       border: 1px solid #d0d3d6; border-radius: 6px; font-size: 13px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.quicklink { background: #f3f6ff; padding: 8px; border-radius: 6px;
+             font-family: ui-monospace, monospace; font-size: 12px;
+             word-break: break-all; margin-top: 8px; cursor: pointer; }

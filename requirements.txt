@@ -1,0 +1,7 @@
+# astrbot-plugin-plus 依赖：HTTP API + Socket.IO 混合 IM 服务端。
+python-socketio>=5.11.0
+aiohttp>=3.9.0
+sqlmodel>=0.0.21
+aiosqlite>=0.20.0
+bcrypt>=4.1
+PyJWT>=2.8
