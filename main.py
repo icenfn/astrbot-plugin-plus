@@ -283,26 +283,34 @@ class AstrBotPlusPlugin(Star):
         if not callable(reg):
             logger.warning("[AstrBot+] context.register_web_api 不可用，管理 API 未注册。")
             return
+        # route 必须以插件名开头：AstrBot 把插件 API 挂在
+        # /api/v1/plugins/extensions/<plugin_name>/... 上，并用
+        # f"/{plugin_path}" 与注册的 route 做正则全匹配。
+        # 路径参数必须写成 <name> / <path:name>（不是 {name}）。
         prefix = f"/{PLUGIN_NAME}/admin"
         routes = [
-            ("GET", f"{prefix}/stats", self._h_admin_stats),
-            ("GET", f"{prefix}/users", self._h_admin_list_users),
-            ("POST", f"{prefix}/users", self._h_admin_create_user),
-            ("PATCH", f"{prefix}/users/{{id}}", self._h_admin_update_user),
-            ("DELETE", f"{prefix}/users/{{id}}", self._h_admin_delete_user),
-            ("GET", f"{prefix}/agents", self._h_admin_list_agents),
-            ("POST", f"{prefix}/agents", self._h_admin_create_agent),
-            ("PATCH", f"{prefix}/agents/{{id}}", self._h_admin_update_agent),
-            ("DELETE", f"{prefix}/agents/{{id}}", self._h_admin_delete_agent),
+            ("GET", f"{prefix}/stats", self._h_admin_stats, "AstrBot+ 总览统计"),
+            ("GET", f"{prefix}/users", self._h_admin_list_users, "用户列表"),
+            ("POST", f"{prefix}/users", self._h_admin_create_user, "新建用户"),
+            ("PATCH", f"{prefix}/users/<id>", self._h_admin_update_user, "修改用户"),
+            ("DELETE", f"{prefix}/users/<id>", self._h_admin_delete_user, "删除用户"),
+            ("GET", f"{prefix}/agents", self._h_admin_list_agents, "Agent 列表"),
+            ("POST", f"{prefix}/agents", self._h_admin_create_agent, "新建 Agent"),
+            ("PATCH", f"{prefix}/agents/<id>", self._h_admin_update_agent, "修改 Agent"),
+            ("DELETE", f"{prefix}/agents/<id>", self._h_admin_delete_agent, "删除 Agent"),
         ]
-        for method, path, handler in routes:
+        for method, route, handler, desc in routes:
             try:
-                reg(method=method, path=path, handler=handler)
-            except Exception:  # noqa: BLE001
+                # AstrBot 真实签名：register_web_api(route, view_handler, methods, desc)
+                reg(route, handler, [method], desc)
+            except TypeError:
+                # 兼容旧版 (method=, path=, handler=) 关键字签名。
                 try:
-                    reg(path, handler, method=method)
+                    reg(method=method, path=route, handler=handler)
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug(f"[AstrBot+] 注册 {method} {path} 失败：{exc}")
+                    logger.warning(f"[AstrBot+] 注册 {method} {route} 失败：{exc}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[AstrBot+] 注册 {method} {route} 失败：{exc}")
 
     @staticmethod
     def _ok(data: Any) -> Any:
@@ -315,19 +323,21 @@ class AstrBotPlusPlugin(Star):
 
     @staticmethod
     def _err(msg: str, code: int = 400) -> Any:
+        # astrbot.api.web.error_response(message, *, status_code=..., data=...)
         if error_response is not None:
             try:
-                return error_response(message=msg, status=code)
+                return error_response(msg, status_code=code)
             except Exception:  # noqa: BLE001
                 pass
-        return {"error": msg}
+        return {"status": "error", "message": msg, "data": None}
 
     async def _read_body(self) -> dict[str, Any]:
         if request is not None:
             try:
-                return await request.json
+                data = await request.json()
             except Exception:  # noqa: BLE001
                 return {}
+            return data if isinstance(data, dict) else {}
         return {}
 
     # ---- stats ----
@@ -389,6 +399,23 @@ class AstrBotPlusPlugin(Star):
         if uid is None:
             return self._err("缺少用户 id")
         fields: dict[str, Any] = {}
+        if "email" in body:
+            email = str(body["email"] or "").strip()
+            if not email or "@" not in email:
+                return self._err("邮箱格式不正确")
+            exists = db.admin_find_user_by_email(email)
+            if exists is not None and int(exists["id"]) != uid:
+                return self._err("该邮箱已被其他用户使用", 409)
+            fields["email"] = email
+        if "password" in body:
+            raw_pw = str(body["password"] or "")
+            if len(raw_pw) < 6:
+                return self._err("密码至少 6 位")
+            import bcrypt as _bcrypt
+
+            fields["password_hash"] = _bcrypt.hashpw(
+                raw_pw.encode("utf-8"), _bcrypt.gensalt()
+            ).decode("utf-8")
         if "username" in body:
             fields["username"] = str(body["username"])
         if "status" in body:

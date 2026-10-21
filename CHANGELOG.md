@@ -1,3 +1,25 @@
+## v0.9.0
+
+### 重构
+- 🏗️ **整体重构为「python-socketio + HTTP API」混合架构的 IM 服务端**：IM 端口（默认 `6199`）只提供 `/api/*`（REST + JWT）、`/socket.io`（实时双向）与 `/health`，插件可视化视图仅通过 AstrBot WebUI 访问，不从 IM 端口暴露，也不需要插件自身登录或管理员账号。
+
+### 新增
+- 👤 **用户管理**：新建用户（邮箱 / 用户名 / 密码，bcrypt 加盐哈希存储）、编辑资料（邮箱唯一性校验、用户名、重置密码）、禁用 / 启用、删除、查看 token 用量、设置用户可用 Agent 白名单（空列表 = 允许全部）。
+- 🔗 **快连链接（一次可见）**：新建用户成功后返回 `ap://email:password@host:port` 形式的快连链接，界面提示「只显示一次、请长按复制保存」，客户端粘贴即可免手动录入完成登录。
+- 🤖 **Agent 管理**：基于 AstrBot 平台配置创建 / 重命名 / 停用启用 / 删除 `astrbot_plus` 适配器，变更后即时热加载与摘除。
+- 💬 **用户私聊与消息漫游**：用户之间可发起私聊，消息落 SQLite（`messages` 表按会话归属方各存一行），支持历史漫游；不同用户与 Agent 的会话通过 `u{uid}:a{bot}` 会话键严格隔离。
+- 🔐 **JWT 鉴权**：`POST /api/auth/login` 登录成功下发一次 Token，后续 HTTP API 通过 `Authorization: Bearer` 携带，Socket.IO 握手用同一 Token 鉴权，无效 token 直接拒绝连接。
+- 📊 **总览统计**：注册用户数、Agent 总数、今日消息数、在线连接数。
+
+### 修复
+- 🐛 **管理 API 注册签名错误**：原先以 `register_web_api(method=..., path=..., handler=...)` 关键字方式调用，与 AstrBot 实际签名 `register_web_api(route, view_handler, methods, desc)` 不符，导致 WebUI 管理接口从未注册成功、用户与 Agent 管理完全不可用。现按真实签名注册，并保留旧版关键字签名兜底。
+- 🐛 **路径参数路由不匹配**：路由占位符由 `{id}` 改为 AstrBot 识别的 `<id>`，否则 `PATCH` / `DELETE` 必然匹配失败。
+- 🐛 **请求体与错误响应**：`await request.json` 缺少调用括号、`error_response(message=, status=)` 参数名错误，均已修正为 `await request.json()` 与 `error_response(msg, status_code=...)`。
+- 🐛 **编辑资料字段缺失**：`PATCH /users/<id>` 补齐邮箱修改（含唯一性冲突 409）与密码重置（bcrypt 重算哈希，最短 6 位校验）。
+
+### 说明
+- 🔖 版本号提升至 `0.9.0`，与客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.9.0` 配套。
+
 ## v0.5.0
 
 ### 新增

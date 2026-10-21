@@ -234,6 +234,16 @@ def admin_get_user(uid: int) -> dict[str, Any] | None:
         conn.close()
 
 
+def admin_find_user_by_email(email: str) -> dict[str, Any] | None:
+    """按邮箱查用户（管理端改资料时做唯一性校验）。"""
+    conn = _sqlite()
+    try:
+        r = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
+
+
 def admin_create_user(
     email: str, username: str, password_hash: str, allowed_agents: str = "[]"
 ) -> dict[str, Any]:
@@ -261,7 +271,7 @@ def admin_create_user(
 
 
 def admin_update_user(uid: int, fields: dict[str, Any]) -> None:
-    allowed = {"username", "status", "allowed_agents"}
+    allowed = {"email", "username", "password_hash", "status", "allowed_agents"}
     sets = [f"{k}=?" for k in fields if k in allowed]
     if not sets:
         return

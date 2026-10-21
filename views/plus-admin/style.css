@@ -35,3 +35,20 @@ th { background: #fafbfc; color: #646a73; font-weight: 500; }
 .quicklink { background: #f3f6ff; padding: 8px; border-radius: 6px;
              font-family: ui-monospace, monospace; font-size: 12px;
              word-break: break-all; margin-top: 8px; cursor: pointer; }
+
+/* ---- 新增交互元素样式（编辑 / 可用 Agent / 快连链接 / 错误态）---- */
+td.ops { white-space: nowrap; }
+td.ops button { margin-right: 4px; }
+td.err { color: #d83931; }
+.quick-wrap { margin-top: 12px; padding: 10px; background: #fff7e6;
+              border: 1px solid #ffd591; border-radius: 8px; }
+.quick-tip { font-size: 12px; color: #ad6800; margin-bottom: 6px; }
+.quicklink.copied { background: #e8f5e9; outline: 1px solid #4caf50; }
+#quick-copy { margin-top: 8px; }
+.chk { display: flex; align-items: center; gap: 6px; font-size: 13px;
+       color: #1f2329; margin: 6px 0; text-transform: none; }
+.chk input { width: auto; }
+#agent-list { margin: 6px 0 0 4px; max-height: 220px; overflow: auto; }
+#agent-list.disabled { opacity: .45; pointer-events: none; }
+.hint { font-size: 12px; color: #8f959e; margin-top: 8px; line-height: 1.5; }
+.hint code { background: #f2f3f5; padding: 1px 4px; border-radius: 4px; }
