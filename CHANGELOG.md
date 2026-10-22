@@ -33,6 +33,7 @@
 - 🏗️ **整体重构为「python-socketio + HTTP API」混合架构的 IM 服务端**：IM 端口（默认 `6199`）只提供 `/api/*`（REST + JWT）、`/socket.io`（实时双向）与 `/health`，插件可视化视图仅通过 AstrBot WebUI 访问，不从 IM 端口暴露，也不需要插件自身登录或管理员账号。
 
 ### 修复
+- 🐛 **客户端账号登录返回 `Failed to fetch`（跨域拦截）**：IM 端口此前只给 socket.io 配了 `cors_allowed_origins="*"`，aiohttp 的 `/api/*` 响应既没有 `Access-Control-Allow-Origin`，也没有处理 `OPTIONS` 预检。客户端（Tauri webview 是独立源）发起 `POST /api/auth/login` 时响应被浏览器跨域策略拦在 JS 之外，`fetch` 直接抛 `Failed to fetch`，表现为「账号登录步骤失败」。现为整个 HTTP 应用加了 CORS 中间件：回显请求 `Origin`、放行 `GET/POST/OPTIONS`、允许 `Authorization` 与 `Content-Type` 请求头、预检返回 `204` 并缓存 24 小时；同时注册 `OPTIONS` 兜底路由，避免未命中路由时先被 405 拦掉。
 - 🐛 **「加载失败 Failed to fetch」**：根因是插件页面运行在 WebUI 的受限 iframe（opaque origin）中，页面里用裸 `fetch` 请求相对地址会被拦截。现统一改走 `window.AstrBotPluginPage` 桥接的 `apiGet` / `apiPost`，由 Dashboard 转发并注入鉴权，不再有跨域失败。
 - 🐛 **管理 API 方法与桥接能力不兼容**：桥接只提供 GET / POST，旧后端使用 `PATCH` / `DELETE` 且把目标对象放在路径参数里，前端根本发不出来。现九条路由全部改为 **GET（查询）+ POST（写入）**，写操作目标由请求体 `id` 指定，不再使用路径参数。
 - 🐛 **桥接 endpoint 前缀缺失**：后端注册路径是 `/<plugin_name>/admin/**`，桥接会自动补插件名前缀，因此页面侧 endpoint 必须保留 `admin/` 段（如 `admin/users`），否则转发后 404。

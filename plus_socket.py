@@ -172,7 +172,11 @@ class PlusSocketServer:
             if self._available
             else None
         )
-        self._app = web.Application() if self._available else None
+        self._app = (
+            web.Application(middlewares=[self._cors_middleware])
+            if self._available
+            else None
+        )
         if self._available:
             self.sio.attach(self._app)
             self._register_http()
@@ -366,9 +370,41 @@ class PlusSocketServer:
         return asyncio.run_coroutine_threadsafe(coro, loop)
 
     # ------------------------------------------------------------------ HTTP API
+    @staticmethod
+    @web.middleware
+    async def _cors_middleware(request: Any, handler: Any) -> Any:
+        """为 IM 端口的 HTTP API 补上跨域响应头。
+
+        客户端是 Tauri webview / 浏览器，与服务端不同源；socket.io 层由
+        `cors_allowed_origins` 处理，但 aiohttp 的 `/api/*` 之前完全没有跨域头，
+        浏览器会把响应拦在 JS 之外，`fetch` 直接抛 `Failed to fetch`。
+        """
+        if request.method == "OPTIONS":
+            response: Any = web.Response(status=204)
+        else:
+            try:
+                response = await handler(request)
+            except web.HTTPException as exc:  # 404/405 等也要带上跨域头
+                response = exc
+        origin = request.headers.get("Origin") or "*"
+        headers = response.headers
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        headers["Access-Control-Allow-Headers"] = (
+            "Authorization, Content-Type, Accept, X-Requested-With"
+        )
+        headers["Access-Control-Max-Age"] = "86400"
+        headers["Vary"] = "Origin"
+        return response
+
+    async def _handle_options(self, request: Any) -> Any:
+        """兜底 OPTIONS：路由未命中时 aiohttp 会在中间件之前 405，故显式兜住。"""
+        return web.Response(status=204)
+
     def _register_http(self) -> None:
         app = self._app
         assert app is not None  # noqa: S101
+        app.router.add_route("OPTIONS", "/{tail:.*}", self._handle_options)
         app.router.add_get("/", self._handle_index)
         app.router.add_get("/health", self._handle_health)
         app.router.add_post("/api/auth/login", self._api_login)
