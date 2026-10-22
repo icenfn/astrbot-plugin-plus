@@ -28,8 +28,8 @@ class User(SQLModel, table=True):
     """注册用户。
 
     ``df`` 是用户的 32 位 hex 指纹（首次创建时生成），客户端据此长期识别
-    同一个用户；``allowed_agents`` 是 JSON 序列化的 bot id 列表，空数组
-    ``[]`` 表示「允许使用全部 agent」。
+    同一个用户；``allowed_agents`` 是 JSON 序列化的 bot id 列表，只有列表里的
+    agent 才可用；空数组 ``[]`` 表示「没有可用 agent」。
     """
 
     __tablename__ = "users"
@@ -44,7 +44,7 @@ class User(SQLModel, table=True):
     df: str = ""
     create_at: float = 0.0
     status: int = 1  # 1=正常 0=禁用
-    allowed_agents: str = "[]"  # JSON array of bot id；"[]" = 全部允许
+    allowed_agents: str = "[]"  # JSON array of bot id；"[]" = 无可用 agent
 
 
 class Message(SQLModel, table=True):

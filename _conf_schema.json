@@ -1,12 +1,17 @@
 {
   "listen_host": {
-    "description": "Socket.io 服务端监听地址，默认 0.0.0.0（对外暴露的唯一端口）。",
+    "description": "IM 服务端地址，默认 0.0.0.0（对外暴露的唯一端口）。",
     "type": "string",
     "default": "0.0.0.0"
   },
   "listen_port": {
-    "description": "Socket.io 服务端监听端口。客户端连接 ws://<host>:<port>。",
+    "description": "IM 服务端端口。客户端连接 ws://<地址>:<端口>。",
     "type": "int",
     "default": 6199
+  },
+  "token_expire_days": {
+    "description": "登录 token 有效期（天），默认 30 天。填 0 表示永久有效。",
+    "type": "int",
+    "default": 30
   }
 }

@@ -15,8 +15,9 @@
 
 | 配置项 | 说明 | 默认 |
 | --- | --- | --- |
-| `listen_host` | Socket.io 监听地址 | `0.0.0.0` |
-| `listen_port` | Socket.io 监听端口 | `6199` |
+| `listen_host` | IM 服务端地址 | `0.0.0.0` |
+| `listen_port` | IM 服务端端口 | `6199` |
+| `token_expire_days` | 登录 token 有效期（天），`0` 表示永久有效 | `30` |
 
 ## Socket.io 事件
 

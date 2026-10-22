@@ -105,7 +105,8 @@ db = _load_sibling("plus_db")
 
 DEFAULT_PORT = 6199
 JWT_ALG = "HS256"
-JWT_EXPIRE_DAYS = 7
+# token 有效期默认 30 天；配置为 0 表示永久有效（payload 不带 exp）。
+JWT_EXPIRE_DAYS = 30
 
 
 class PlusSocketServer:
@@ -117,12 +118,15 @@ class PlusSocketServer:
         port: int,
         data_dir: str | Path = ".",
         version: str = "0.9.0",
+        token_expire_days: int = JWT_EXPIRE_DAYS,
     ) -> None:
         self.host = host or "0.0.0.0"
         self.port = int(port or DEFAULT_PORT)
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.version = version
+        # token 有效期（天）；0 = 永久有效。
+        self.token_expire_days = max(0, int(token_expire_days))
 
         # 初始化数据库（引擎创建是同步操作，建表在事件循环里做）。
         db.init_db(self.data_dir / "astrbot_plugin_plus.db")
@@ -196,12 +200,14 @@ class PlusSocketServer:
     # ------------------------------------------------------------------ JWT
     def _issue_token(self, user: db.User) -> str:
         now = int(time.time())
-        payload = {
+        payload: dict[str, Any] = {
             "sub": str(user.id),
             "email": user.email,
-            "exp": now + JWT_EXPIRE_DAYS * 86400,
             "iat": now,
         }
+        # expire_days == 0 表示永久有效，此时不写入 exp 声明。
+        if self.token_expire_days > 0:
+            payload["exp"] = now + self.token_expire_days * 86400
         return pyjwt.encode(payload, self._secret, algorithm=JWT_ALG)  # type: ignore[union-attr]
 
     def _decode_token(self, token: str) -> dict[str, Any] | None:
@@ -443,7 +449,8 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
         out: list[dict[str, Any]] = []
         for b in bots:
             bid = str(b.get("id"))
-            if allowed and bid not in allowed:
+            # 语义：只有白名单内的 agent 可用；空列表 = 无可用 agent。
+            if bid not in allowed:
                 continue
             out.append(
                 {
@@ -586,7 +593,8 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
                     await s.exec(select(db.User).where(db.User.id == me["id"]))
                 ).first()
             allowed = db.parse_allowed_agents(user.allowed_agents) if user else []
-            if allowed and bot_id not in allowed:
+            # 语义：只允许白名单内的 agent；空列表表示该用户没有任何可用 agent。
+            if bot_id not in allowed:
                 await self.sio.emit(
                     "chat:error",
                     {"reqId": req_id, "message": "你没有权限使用该 agent。"},

@@ -279,22 +279,36 @@ td.error { color: var(--danger); }
 .drawer-layer, .dialog-layer { position: fixed; inset: 0; z-index: 60; }
 .drawer-scrim, .dialog-scrim { position: absolute; inset: 0; background: rgba(11, 15, 25, .48); }
 
+/* 编辑弹窗铺满整个页面 */
 .drawer-panel {
-  position: absolute; top: 0; right: 0; bottom: 0;
-  width: min(440px, 100%);
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
   display: flex; flex-direction: column;
-  background: var(--surface); border-left: 1px solid var(--line);
-  box-shadow: var(--shadow-md);
+  background: var(--surface); border: 0;
+  box-shadow: none;
 }
 .drawer-head {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line);
+  gap: 10px; padding: 16px 22px; border-bottom: 1px solid var(--line);
+  flex: none;
 }
-.drawer-head h2 { margin: 0; font-size: 15px; }
-.drawer-body { padding: 18px; overflow: auto; flex: 1; }
+.drawer-head h2 { margin: 0; font-size: 16px; }
+/* 全屏抽屉：内容限宽居中，长表单也能自然滚动 */
+.drawer-body {
+  flex: 1; overflow: auto;
+  padding: 22px;
+  width: 100%; max-width: 720px; margin: 0 auto;
+}
 .drawer-foot {
   display: flex; justify-content: flex-end; gap: 9px;
-  padding: 14px 18px; border-top: 1px solid var(--line); background: var(--surface-2);
+  padding: 14px 22px; border-top: 1px solid var(--line); background: var(--surface-2);
+  flex: none;
+}
+
+/* 智能体备注列：过长时省略，悬停可看全文 */
+.remark-cell {
+  max-width: 180px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* ============================ 确认框 ============================ */
@@ -344,7 +358,6 @@ td.error { color: var(--danger); }
 /* ---------- 平板竖屏 / 小窗 ---------- */
 @media (max-width: 860px) {
   .main { padding: 16px 14px 30px; }
-  .drawer-panel { width: 100%; }
   .topbar { margin-bottom: 14px; }
   .tab-text { white-space: nowrap; }
 }
@@ -377,12 +390,10 @@ td.error { color: var(--danger); }
 
   .foot-hint { font-size: 11px; }
 
-  /* 抽屉改为自底部升起，更符合移动端手感 */
+  /* 移动端同样铺满整页 */
   .drawer-panel {
-    top: auto; left: 0; right: 0; bottom: 0;
-    width: 100%; max-height: 88vh;
-    border-left: 0; border-top: 1px solid var(--line);
-    border-radius: 14px 14px 0 0;
+    inset: 0; width: 100%; height: 100%;
+    max-height: none; border: 0; border-radius: 0;
   }
   .drawer-body { padding: 14px; }
   .drawer-head { padding: 13px 14px; }

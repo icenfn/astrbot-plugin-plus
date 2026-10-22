@@ -266,6 +266,8 @@ class AstrBotPlusEvent(AstrMessageEvent):  # type: ignore[misc]
         "botname": "",
         # 机器人指纹（128 位 hash），创建机器人时生成，用于稳定标识该机器人。
         "botdf": "",
+        # 备注：纯展示用途的自由文本，便于在平台列表里区分多个 Agent。
+        "remark": "",
     },
     adapter_display_name=ADAPTER_DISPLAY_NAME,
     logo_path="logo.png",

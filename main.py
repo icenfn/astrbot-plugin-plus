@@ -100,6 +100,9 @@ except Exception as exc:  # noqa: BLE001
 
 PLUGIN_NAME = "astrbot_plugin_plus"
 
+# token 有效期默认值（天）：与 _conf_schema.json 的 token_expire_days 保持一致。
+DEFAULT_TOKEN_EXPIRE_DAYS = 30
+
 
 def _read_metadata() -> dict[str, Any]:
     """用 PyYAML 解析插件根目录的 ``metadata.yaml``。
@@ -258,6 +261,18 @@ class AstrBotPlusPlugin(Star):
             return dict(cfg)
         return {}
 
+    def _token_expire_days(self) -> int:
+        """token 有效期（天）：读取 token_expire_days；0 表示永久有效。"""
+        conf = self._plugin_conf()
+        raw = conf.get("token_expire_days")
+        if raw is None:
+            return DEFAULT_TOKEN_EXPIRE_DAYS
+        try:
+            days = int(raw)
+        except (TypeError, ValueError):
+            return DEFAULT_TOKEN_EXPIRE_DAYS
+        return max(0, days)
+
     def _start_socket(self, data_dir: Path) -> PlusSocketServer | None:
         """构建并启动 IM 服务端；失败时只记录日志，不影响插件其余功能加载。"""
         conf = self._plugin_conf()
@@ -267,6 +282,7 @@ class AstrBotPlusPlugin(Star):
                 port=int(conf.get("listen_port") or 6199),
                 data_dir=data_dir,
                 version=__version__,
+                token_expire_days=self._token_expire_days(),
             )
         except Exception as exc:  # noqa: BLE001
             logger.error(f"[AstrBot+] IM 服务端初始化失败：{exc}")
@@ -505,6 +521,7 @@ class AstrBotPlusPlugin(Star):
                     "botname": p.get("botname") or "",
                     "enable": bool(p.get("enable", True)),
                     "botdf": p.get("botdf") or "",
+                    "remark": p.get("remark") or "",
                 }
                 for p in self._agent_configs()
             ]
@@ -526,6 +543,8 @@ class AstrBotPlusPlugin(Star):
             "enable": True,
             "id": bot_id,
             "botname": botname,
+            # 备注：自由文本，仅用于平台列表展示区分（限 64 字符）
+            "remark": str(body.get("remark") or "").strip()[:64],
             # 32 位数字指纹，区分不同 Agent 的会话/数据
             "botdf": hashlib.md5(
                 f"{self._adapter_name()}:{bot_id}".encode("utf-8")
@@ -552,6 +571,8 @@ class AstrBotPlusPlugin(Star):
                 cfg["botname"] = name
             if "enable" in body:
                 cfg["enable"] = bool(body.get("enable"))
+            if "remark" in body:
+                cfg["remark"] = str(body.get("remark") or "").strip()[:64]
             await self._save_config()
             await self._sync_platform(cfg)
             self._notify_bots_changed()

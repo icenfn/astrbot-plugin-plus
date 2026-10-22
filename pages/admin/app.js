@@ -377,15 +377,18 @@ async function onUserAction(act, id) {
 }
 
 /** 智能体多选区 HTML；未加载时提示 */
-function agentChecksHTML(selected) {
+function agentChecksHTML(selected, defaultAll) {
+  // defaultAll=true 时（新建用户）未指定白名单则默认全选；
+  // 语义上「全部不勾选」代表该用户没有可用智能体。
   const picked = new Set((selected || []).map(String));
+  const all = defaultAll && !picked.size;
   if (!state.agents.length) {
     return '<p class="hint">暂无智能体可选。</p>';
   }
   return state.agents
     .map(
       (a) => `<label class="check">
-        <input type="checkbox" name="allowed" value="${esc(a.id)}" ${picked.has(String(a.id)) ? "checked" : ""} />
+        <input type="checkbox" name="allowed" value="${esc(a.id)}" ${all || picked.has(String(a.id)) ? "checked" : ""} />
         <span>${esc(a.botname || a.id)} <span class="mono muted">${esc(a.id)}</span></span>
       </label>`
     )
@@ -413,7 +416,8 @@ function openCreateUser() {
      </div>
      <div class="field">
        <label>可用智能体</label>
-       <div class="agent-picker" id="agent-picker">${agentChecksHTML([])}</div>
+       <div class="agent-picker" id="agent-picker">${agentChecksHTML([], true)}</div>
+       <p class="hint">默认全选；取消勾选后该用户将没有可用智能体。</p>
      </div>
      <p class="hint">创建成功后会返回一条快连链接，可直接填入客户端登录。</p>`,
     "创建",
@@ -426,8 +430,8 @@ function openCreateUser() {
       if (password.length < 6) throw new Error("密码至少 6 位");
 
       const body = { email, username, password };
-      const allowed = collectChecked();
-      if (allowed.length) body.allowed_agents = allowed;
+      // 始终提交白名单：空数组表示「没有可用智能体」。
+      body.allowed_agents = collectChecked();
 
       const res = (await apiPost("users/create", body)) || {};
       drawer.close();
@@ -536,7 +540,7 @@ function openEditUser(u) {
 
 function agentPlaceholder(text, isError) {
   const tb = $("#table-agents tbody");
-  tb.innerHTML = `<tr><td class="placeholder${isError ? " error" : ""}" colspan="5">${esc(text)}</td></tr>`;
+  tb.innerHTML = `<tr><td class="placeholder${isError ? " error" : ""}" colspan="6">${esc(text)}</td></tr>`;
 }
 
 async function loadAgents() {
@@ -556,7 +560,7 @@ async function loadAgents() {
 function renderAgents() {
   const tb = $("#table-agents tbody");
   if (!state.agents.length) {
-    tb.innerHTML = '<tr><td class="placeholder" colspan="5">暂无智能体，点击右上角「新建智能体」创建。</td></tr>';
+    tb.innerHTML = '<tr><td class="placeholder" colspan="6">暂无智能体，点击右上角「新建智能体」创建。</td></tr>';
     return;
   }
   tb.innerHTML = state.agents
@@ -565,6 +569,7 @@ function renderAgents() {
       return `<tr>
         <td class="mono">${esc(a.id)}</td>
         <td>${esc(a.botname)}</td>
+        <td class="remark-cell${a.remark ? "" : " muted"}">${a.remark ? esc(a.remark) : "—"}</td>
         <td class="mono muted">${esc(a.botdf)}</td>
         <td><span class="tag ${on ? "on" : "off"}">${on ? "启用" : "停用"}</span></td>
         <td class="ops">
@@ -634,6 +639,10 @@ function openCreateAgent() {
        <label for="f-id">Agent ID（可选）</label>
        <input id="f-id" type="text" placeholder="留空自动生成 12 位 ID" autocomplete="off" />
      </div>
+     <div class="field">
+       <label for="f-remark">备注（可选）</label>
+       <input id="f-remark" type="text" placeholder="用于区分多个智能体，例如：客服专用" autocomplete="off" />
+     </div>
      <p class="hint">创建后会在平台配置中追加一个 astrbot_plus 适配器并立即热加载，同时生成 32 位会话指纹。</p>`,
     "创建",
     async () => {
@@ -641,8 +650,10 @@ function openCreateAgent() {
       const id = $("#f-id").value.trim();
       if (!botname) throw new Error("请填写显示名");
 
+      const remark = $("#f-remark").value.trim();
       const body = { botname };
       if (id) body.id = id;
+      if (remark) body.remark = remark;
 
       await apiPost("agents/create", body);
       drawer.close();
@@ -665,6 +676,10 @@ function openEditAgent(a) {
        <input id="f-botname" type="text" value="${esc(a.botname)}" autocomplete="off" />
      </div>
      <div class="field">
+       <label for="f-remark">备注</label>
+       <input id="f-remark" type="text" value="${esc(a.remark || "")}" placeholder="用于区分多个智能体" autocomplete="off" />
+     </div>
+     <div class="field">
        <label class="check">
          <input type="checkbox" id="f-enable" ${on ? "checked" : ""} />
          <span>启用该智能体</span>
@@ -676,8 +691,9 @@ function openEditAgent(a) {
       const botname = $("#f-botname").value.trim();
       if (!botname) throw new Error("显示名不能为空");
       const enable = $("#f-enable").checked;
+      const remark = $("#f-remark").value.trim();
 
-      await apiPost("agents/update", { id: a.id, botname, enable });
+      await apiPost("agents/update", { id: a.id, botname, enable, remark });
       drawer.close();
       toast("已保存", "ok");
       await Promise.all([loadAgents(), loadStats()]);
