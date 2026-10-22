@@ -286,15 +286,10 @@ function userPlaceholder(text, isError) {
   tb.innerHTML = `<tr><td class="placeholder${isError ? " error" : ""}" colspan="7">${esc(text)}</td></tr>`;
 }
 
-function allowedText(user, agents) {
+function allowedText(user) {
   const ids = Array.isArray(user.allowed_agents) ? user.allowed_agents : [];
-  // 空表示该用户没有任何可用智能体，不能显示为「全部」
-  if (!ids.length) return "—";
-  const names = ids.map((id) => {
-    const a = agents.find((x) => String(x.id) === String(id));
-    return a ? a.botname || a.id : id;
-  });
-  return names.join("、");
+  // 列表中只显示可用智能体的数量；0 表示该用户没有任何可用智能体。
+  return String(ids.length);
 }
 
 async function loadUsers() {
@@ -325,7 +320,7 @@ function renderUsers() {
         <td>${esc(u.username)}</td>
         <td>${esc(fmtTime(u.create_at))}</td>
         <td><span class="tag ${on ? "on" : "off"}">${on ? "正常" : "禁用"}</span></td>
-        <td>${esc(allowedText(u, state.agents))}</td>
+        <td>${esc(allowedText(u))}</td>
         <td class="mono">${fmtNum(u.tokenUsage)}</td>
         <td class="ops">
           <button class="btn sm" data-act="edit" data-id="${esc(u.id)}">编辑</button>
