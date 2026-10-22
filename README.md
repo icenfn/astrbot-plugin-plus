@@ -18,6 +18,9 @@
 | `listen_host` | IM 服务端地址 | `0.0.0.0` |
 | `listen_port` | IM 服务端端口 | `6199` |
 | `token_expire_days` | 登录 token 有效期（天），`0` 表示永久有效 | `30` |
+| `quick_link_host` | 快连链接中展示的 IP / 域名。留空时自动读取 AstrBot 系统设置「对外可达的回调接口地址」，仍为空则回落到本机探测地址 | 空 |
+
+> 快连链接（`ap://`）的主机名按以下顺序确定：AstrBot 系统设置「对外可达的回调接口地址」 → `quick_link_host` → 代码探测的本机对外 IPv4 → `listen_host` → `localhost`。
 
 ## Socket.io 事件
 

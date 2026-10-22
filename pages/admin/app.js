@@ -87,6 +87,12 @@ function esc(value) {
   }[c]));
 }
 
+/** 用户指纹：由系统生成、只读展示，用于识别客户端 */
+function userFingerprint(user) {
+  const raw = user && (user.df || user.fingerprint || user.df_hash);
+  return raw ? String(raw) : "—";
+}
+
 /** 秒级时间戳 → 本地可读时间 */
 function fmtTime(ts) {
   const n = Number(ts) || 0;
@@ -282,7 +288,8 @@ function userPlaceholder(text, isError) {
 
 function allowedText(user, agents) {
   const ids = Array.isArray(user.allowed_agents) ? user.allowed_agents : [];
-  if (!ids.length) return "全部";
+  // 空表示该用户没有任何可用智能体，不能显示为「全部」
+  if (!ids.length) return "—";
   const names = ids.map((id) => {
     const a = agents.find((x) => String(x.id) === String(id));
     return a ? a.botname || a.id : id;
@@ -488,6 +495,11 @@ function openEditUser(u) {
     `<div class="field">
        <label for="f-email">邮箱</label>
        <input id="f-email" type="email" value="${esc(u.email)}" autocomplete="off" />
+     </div>
+     <div class="field">
+       <label>指纹</label>
+       <input id="f-fingerprint" type="text" value="${esc(userFingerprint(u))}" readonly class="mono" />
+       <p class="hint">指纹由系统生成，仅用于识别该客户端，不可修改。</p>
      </div>
      <div class="field">
        <label for="f-username">用户名</label>

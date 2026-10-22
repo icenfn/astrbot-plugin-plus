@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -367,13 +369,104 @@ class AstrBotPlusPlugin(Star):
 
         return bcrypt.hashpw(raw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
+    def _astrbot_global_conf(self) -> dict[str, Any]:
+        """读取 AstrBot 全局配置（含系统设置项，如 callback_api_base）。"""
+        getter = getattr(self.context, "get_config", None)
+        if not callable(getter):
+            return {}
+        try:
+            cfg = getter()
+        except Exception:  # noqa: BLE001
+            return {}
+        return cfg if isinstance(cfg, dict) else {}
+
+    @staticmethod
+    def _host_from_url(url: str) -> str:
+        """从 http(s):// 地址中取出 host（不含端口），失败返回空串。"""
+        text = str(url or "").strip()
+        if not text:
+            return ""
+        if "://" not in text:
+            # 允许用户直接填 example.com 或 example.com:6185
+            text = "//" + text
+        try:
+            parsed = urlsplit(text)
+            return (parsed.hostname or "").strip()
+        except ValueError:
+            return ""
+
+    @staticmethod
+    def _detect_local_address() -> str:
+        """探测本机对外可用的 IPv4 地址。
+
+        通过 UDP socket 的 connect（不发送任何数据包）取得默认路由出口地址，
+        不产生外部请求、不受联网可用性影响；失败返回空串。
+        """
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(0.2)
+            sock.connect(("8.8.8.8", 80))
+            ip = (sock.getsockname() or ("", 0))[0]
+            if ip and not ip.startswith("127.") and ip != "0.0.0.0":
+                return ip
+        except OSError:
+            pass
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+        return ""
+
+    def _resolve_display_host(self) -> tuple[str, str]:
+        """确定快连链接里使用的对外地址。
+
+        优先级：
+          1. AstrBot 系统设置「对外可达的回调接口地址」(callback_api_base)
+          2. 插件配置项 quick_link_host（显式覆盖）
+          3. 代码探测本机对外 IPv4（UDP 出口地址，无外部请求）
+          4. 插件 listen_host（非 0.0.0.0 时即真实绑定地址）
+          5. 回落到 localhost
+        返回 (host, 来源说明)。
+        """
+        # 1. AstrBot 全局系统设置：对外可达的回调接口地址
+        global_conf = self._astrbot_global_conf()
+        host = self._host_from_url(str(global_conf.get("callback_api_base") or ""))
+        if host:
+            return host, "astrbot.callback_api_base"
+
+        conf = self._plugin_conf()
+
+        # 2. 插件自身的显式覆盖配置
+        override = self._host_from_url(str(conf.get("quick_link_host") or ""))
+        if not override:
+            raw_override = str(conf.get("quick_link_host") or "").strip()
+            # 允许只填裸 host（无协议）
+            if raw_override and "://" not in raw_override:
+                override = raw_override.split("/")[0].split(":")[0].strip()
+        if override:
+            return override, "plugin.quick_link_host"
+
+        # 3. 代码探测本机对外地址（不发起真实外网请求，仅用于取得路由出口 IP）
+        detected = self._detect_local_address()
+        if detected:
+            return detected, "detect.local_ip"
+
+        # 4. listen_host 是具体地址时，直接用它
+        listen_host = str(conf.get("listen_host") or "").strip()
+        if listen_host and listen_host not in ("0.0.0.0", "::", "[::]", ""):
+            return listen_host, "plugin.listen_host"
+
+        # 5. 兜底
+        return "localhost", "fallback.localhost"
+
     def _build_quick_link(self, email: str, password: str) -> str:
         """生成快连链接 ``ap://email:password@host:port``。"""
         conf = self._plugin_conf()
-        host = str(conf.get("listen_host") or "0.0.0.0")
         port = int(conf.get("listen_port") or 6199)
-        # 0.0.0.0 / :: 无法作为客户端目标，回落到 localhost
-        display_host = "localhost" if host in ("0.0.0.0", "::", "") else host
+        display_host, _source = self._resolve_display_host()
         return f"ap://{email}:{password}@{display_host}:{port}"
 
     def _agent_configs(self) -> list[dict[str, Any]]:
