@@ -427,10 +427,21 @@ class AstrBotPlusPlugin(Star):
             pw_hash = self._hash_password(password)
         except Exception as exc:  # noqa: BLE001
             return self._err(f"密码加密失败：{exc}")
+        # 可选：创建时即指定可用智能体白名单；缺省或非法时按「全部允许」处理
+        allowed_raw = body.get("allowed_agents")
+        allowed_agents = (
+            db.dumps_allowed_agents(allowed_raw)
+            if isinstance(allowed_raw, list)
+            else "[]"
+        )
         try:
-            user = db.admin_create_user(email, username, pw_hash)
+            user = db.admin_create_user(email, username, pw_hash, allowed_agents)
         except Exception as exc:  # noqa: BLE001
             return self._err(f"创建用户失败：{exc}")
+        if isinstance(user, dict):
+            user["allowed_agents"] = db.parse_allowed_agents(
+                user.get("allowed_agents")
+            )
         return self._ok(
             {"user": user, "quickLink": self._build_quick_link(email, password)}
         )

@@ -4,67 +4,105 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AstrBot+ 控制台</title>
+
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <div class="app">
-      <!-- 左侧导航 -->
-      <aside class="nav">
-        <div class="nav-brand">
-          <span class="mark" aria-hidden="true"></span>
-          <div class="brand-text">
-            <strong>AstrBot+</strong>
-            <small id="nav-sub">控制台</small>
-          </div>
-        </div>
-        <nav class="nav-list" id="nav-list">
-          <button class="nav-item is-active" data-view="overview">
-            <span class="nav-icon" aria-hidden="true">◫</span>
-            <span>概览</span>
-          </button>
-          <button class="nav-item" data-view="users">
-            <span class="nav-icon" aria-hidden="true">☰</span>
-            <span>用户</span>
-          </button>
-          <button class="nav-item" data-view="agents">
-            <span class="nav-icon" aria-hidden="true">✦</span>
-            <span>智能体</span>
-          </button>
-        </nav>
-        <div class="nav-foot">
-          <span class="conn" id="conn"><i></i><em id="conn-text">连接中</em></span>
-          <span class="ver" id="ver">—</span>
-        </div>
-      </aside>
-
-      <!-- 右侧内容 -->
       <main class="main">
         <header class="topbar">
+          <div class="topbar-brand">
+            <div class="brand">
+              <svg class="brand-logo" viewBox="0 0 512 512" width="28" height="28" role="img" aria-label="AstrBot+">
+                <defs>
+                  <linearGradient id="abpLogoBg" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#42a9e2" />
+                    <stop offset="0.5" stop-color="#2f86bd" />
+                    <stop offset="1" stop-color="#1a5c92" />
+                  </linearGradient>
+                  <linearGradient id="abpLogoMark" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stop-color="#ffffff" />
+                    <stop offset="1" stop-color="#dcefff" />
+                  </linearGradient>
+                </defs>
+                <rect width="512" height="512" rx="116" fill="url(#abpLogoBg)" />
+                <path d="M256 96 C266 176 336 246 416 256 C336 266 266 336 256 416 C246 336 176 266 96 256 C176 246 246 176 256 96 Z" fill="url(#abpLogoMark)" />
+                <circle cx="382" cy="382" r="70" fill="#1a5c92" opacity="0.35" />
+                <circle cx="382" cy="382" r="62" fill="#ffffff" />
+                <path d="M382 350v64M350 382h64" stroke="#2f86bd" stroke-width="16" stroke-linecap="round" />
+              </svg>
+              <strong class="brand-name">AstrBot+</strong>
+            </div>
+            <div class="topbar-actions">
+              <button class="btn" id="btn-reload">刷新</button>
+              <button class="btn primary" id="btn-create" hidden></button>
+            </div>
+          </div>
           <div class="topbar-title">
             <h1 id="view-title">概览</h1>
             <p id="view-desc" class="muted"></p>
           </div>
-          <div class="topbar-actions">
-            <button class="btn" id="btn-reload">刷新</button>
-            <button class="btn primary" id="btn-create" hidden></button>
-          </div>
         </header>
+
+        <!-- 视图切换：置于标题下方 -->
+        <nav class="tabs" id="nav-list" role="tablist" aria-label="视图切换">
+          <button
+            class="tab is-active"
+            data-view="overview"
+            role="tab"
+            aria-selected="true"
+          >
+            <span class="tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1.6" />
+                <rect x="14" y="3" width="7" height="7" rx="1.6" />
+                <rect x="3" y="14" width="7" height="7" rx="1.6" />
+                <rect x="14" y="14" width="7" height="7" rx="1.6" />
+              </svg>
+            </span>
+            <span class="tab-text">概览</span>
+          </button>
+          <button class="tab" data-view="users" role="tab" aria-selected="false">
+            <span class="tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="9" cy="8" r="3.4" />
+                <path d="M3 20c0-3 2.7-5.2 6-5.2s6 2.2 6 5.2" />
+                <path d="M16.5 5.4a3.2 3.2 0 0 1 0 5.9" />
+                <path d="M18 14.9c2 .8 3.3 2.5 3.3 4.6" />
+              </svg>
+            </span>
+            <span class="tab-text">用户</span>
+          </button>
+          <button class="tab" data-view="agents" role="tab" aria-selected="false">
+            <span class="tab-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3.2l2.1 5.2 5.2 2.1-5.2 2.1-2.1 5.2-2.1-5.2L4.7 10.5l5.2-2.1z" />
+                <path d="M18.4 16.6l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" />
+              </svg>
+            </span>
+            <span class="tab-text">智能体</span>
+          </button>
+        </nav>
 
         <!-- 概览 -->
         <section class="view is-active" data-view="overview">
           <div class="tiles">
-            <div class="tile"><span class="tile-label">注册用户</span><strong id="stat-users">—</strong></div>
-            <div class="tile"><span class="tile-label">智能体</span><strong id="stat-agents">—</strong></div>
-            <div class="tile"><span class="tile-label">今日消息</span><strong id="stat-today">—</strong></div>
-            <div class="tile"><span class="tile-label">在线连接</span><strong id="stat-online">—</strong></div>
-          </div>
-          <div class="note">
-            <h3>运行方式</h3>
-            <ul>
-              <li><span>客户端主动查询（登录 / 拉列表 / 拉历史）走 HTTP API，携带 JWT。</span></li>
-              <li><span>服务端主动推送（消息、流式回复、私聊）走 Socket.IO，握手用同一 Token。</span></li>
-              <li><span>IM 端口只提供 /api、/socket.io、/health，管理页面仅在 AstrBot WebUI 内可见。</span></li>
-            </ul>
+            <div class="tile">
+              <span class="tile-label">注册用户</span>
+              <strong id="stat-users">—</strong>
+            </div>
+            <div class="tile">
+              <span class="tile-label">智能体</span>
+              <strong id="stat-agents">—</strong>
+            </div>
+            <div class="tile">
+              <span class="tile-label">今日消息</span>
+              <strong id="stat-today">—</strong>
+            </div>
+            <div class="tile">
+              <span class="tile-label">在线连接</span>
+              <strong id="stat-online">—</strong>
+            </div>
           </div>
         </section>
 
@@ -86,7 +124,6 @@
               <tbody></tbody>
             </table>
           </div>
-          <p class="foot-hint">「可用智能体」为空表示该用户可用全部智能体。</p>
         </section>
 
         <!-- 智能体 -->
@@ -107,6 +144,10 @@
           </div>
           <p class="foot-hint">新建智能体会在平台配置中追加一个 astrbot_plus 适配器并即时热加载。</p>
         </section>
+
+        <footer class="page-foot">
+          <span class="ver" id="ver">—</span>
+        </footer>
       </main>
     </div>
 

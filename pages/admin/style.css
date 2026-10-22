@@ -54,84 +54,104 @@ body {
 
 /* ============================ 布局 ============================ */
 .app {
-  display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
   min-height: 100vh;
   min-height: 100dvh; /* 移动端地址栏伸缩时保持整屏 */
 }
 
-/* ---------- 左侧导航 ---------- */
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 20px 14px;
-  background: var(--surface);
-  border-right: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  height: 100dvh;
+/* ---------- 顶栏 ---------- */
+.main {
+  padding: 20px 26px 40px;
+  max-width: 1240px;
+  margin: 0 auto;
+  min-width: 0;
 }
-
-.nav-brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px; }
-
-.mark {
-  width: 26px; height: 26px; border-radius: 8px; flex: none;
-  background: linear-gradient(135deg, var(--accent), #9d6bff);
-  box-shadow: 0 2px 8px var(--accent-soft);
-  position: relative;
-}
-.mark::after {
-  content: ""; position: absolute; inset: 7px;
-  border: 2px solid #fff; border-radius: 3px;
-  border-bottom-color: transparent; border-right-color: transparent;
-  transform: rotate(45deg);
-}
-
-.brand-text { display: flex; flex-direction: column; min-width: 0; }
-.brand-text strong { font-size: 14.5px; letter-spacing: .3px; }
-.brand-text small { color: var(--text-dim); font-size: 11.5px; }
-
-.nav-list { display: flex; flex-direction: column; gap: 2px; }
-
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 11px; border: 0; border-radius: 9px;
-  background: transparent; color: var(--text-dim);
-  font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
-  transition: background .15s ease, color .15s ease;
-}
-.nav-item:hover { background: var(--surface-2); color: var(--text); }
-.nav-item.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.nav-icon { width: 16px; text-align: center; font-size: 13px; opacity: .9; }
-
-.nav-foot {
-  margin-top: auto; padding: 10px 8px 2px;
-  border-top: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 6px;
-  font-size: 11.5px; color: var(--text-dim);
-}
-.conn { display: inline-flex; align-items: center; gap: 6px; }
-.conn i { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
-.conn.is-on i { background: var(--ok); box-shadow: 0 0 0 3px rgba(22, 163, 74, .16); }
-.conn.is-off i { background: var(--danger); }
-.conn em { font-style: normal; }
-.ver { font-family: var(--mono); }
-
-/* ---------- 右侧主区 ---------- */
-.main { padding: 22px 26px 40px; min-width: 0; }
 
 .topbar {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
 }
-.topbar-title h1 { margin: 0; font-size: 19px; letter-spacing: .2px; }
-.topbar-title p { margin: 3px 0 0; font-size: 12.5px; }
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brand-logo {
+  width: 28px; height: 28px; flex: none; display: block;
+  border-radius: 8px;
+}
+.brand-name { font-size: 14.5px; letter-spacing: .3px; }
+
+.topbar-title h1 { margin: 0; font-size: 20px; letter-spacing: .2px; }
+.topbar-title p { margin: 4px 0 0; font-size: 12.5px; }
+
 .topbar-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+/* ---------- 视图切换标签（位于标题下方） ---------- */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 9px 14px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.tab:hover { color: var(--text); background: var(--surface-2); }
+.tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+.tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px; height: 16px; flex: none;
+}
+.tab-icon svg { width: 100%; height: 100%; display: block; }
 
 .view { display: none; }
 .view.is-active { display: block; }
+
+.page-foot {
+  margin-top: 26px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.page-foot .ver { font-family: var(--mono); }
 
 /* ============================ 按钮 ============================ */
 .btn {
@@ -308,49 +328,25 @@ td.error { color: var(--danger); }
 
 /* ============================ 响应式 ============================
  * 断点设计：
- *   ≤1080px  平板横屏：导航收窄、四指标变两列
- *   ≤860px   平板竖屏 / 小窗：导航转为顶部横向条
- *   ≤560px   手机：内容收紧、表单与按钮占满宽度
- *   ≤380px   超窄屏：导航仅留图标，进一步压缩留白
+ *   ≤1080px  平板横屏：留白收紧、四指标变两列
+ *   ≤860px   平板竖屏 / 小窗：标签栏可横向滑动、抽屉占满宽
+ *   ≤560px   手机：标题与按钮上下堆叠、抽屉自底部升起
+ *   ≤380px   超窄屏：标签仅留图标，进一步压缩留白
  * ============================================================== */
 
 /* ---------- 平板横屏 ---------- */
 @media (max-width: 1080px) {
-  .app { grid-template-columns: 180px minmax(0, 1fr); }
   .main { padding: 18px 18px 34px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table th, .table td { padding: 10px 11px; }
 }
 
-/* ---------- 导航转为顶部横向条 ---------- */
+/* ---------- 平板竖屏 / 小窗 ---------- */
 @media (max-width: 860px) {
-  .app { grid-template-columns: 1fr; }
-
-  .nav {
-    position: sticky; top: 0; z-index: 20;
-    height: auto; flex-direction: row; align-items: center;
-    gap: 10px; padding: 10px 14px;
-    border-right: 0; border-bottom: 1px solid var(--line);
-    overflow-x: auto; overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .nav::-webkit-scrollbar { display: none; }
-
-  .nav-brand { margin-right: 4px; flex: none; }
-  .nav-list { flex-direction: row; gap: 4px; flex: none; }
-  .nav-item { padding: 7px 12px; white-space: nowrap; }
-  .nav-item span:last-child { white-space: nowrap; }
-
-  .nav-foot {
-    margin: 0 0 0 auto; padding: 0; border-top: 0;
-    flex-direction: row; align-items: center; gap: 10px;
-    flex: none; white-space: nowrap;
-  }
-
   .main { padding: 16px 14px 30px; }
   .drawer-panel { width: 100%; }
-  .topbar { margin-bottom: 16px; }
+  .topbar { margin-bottom: 14px; }
+  .tab-text { white-space: nowrap; }
 }
 
 /* ---------- 手机 ---------- */
@@ -358,18 +354,20 @@ td.error { color: var(--danger); }
   body { font-size: 13.5px; }
   .main { padding: 14px 11px 28px; }
 
-  /* 标题与操作按钮上下堆叠，按钮占满一行更好点 */
-  .topbar { flex-direction: column; align-items: stretch; gap: 10px; }
-  .topbar-actions { width: 100%; }
-  .topbar-actions .btn { flex: 1 1 auto; text-align: center; }
+  /* 品牌行与标题各自成行，按钮占满一行更好点 */
+  .topbar { gap: 11px; }
+  .topbar-brand { align-items: center; }
+  .topbar-actions { margin-left: auto; }
+  .topbar-actions .btn { padding: 7px 14px; font-size: 12.5px; }
   .topbar-title h1 { font-size: 17px; }
+
+  /* 标签栏：可横向滑动，避免挤压 */
+  .tabs { margin-bottom: 14px; }
+  .tab { padding: 8px 11px; font-size: 13px; }
 
   .tiles { gap: 9px; margin-bottom: 14px; }
   .tile { padding: 12px 13px; }
   .tile strong { font-size: 19px; }
-
-  .note { padding: 13px 14px; }
-  .note ul { padding-left: 16px; }
 
   /* 表格：横向滚动 + 关键列保持可读宽度 */
   .table { font-size: 12.5px; }
@@ -402,13 +400,11 @@ td.error { color: var(--danger); }
 
 /* ---------- 超窄屏 ---------- */
 @media (max-width: 380px) {
-  /* 导航只保留图标，靠 active 态区分 */
-  .nav { padding: 8px 10px; gap: 6px; }
-  .nav-item { padding: 7px 10px; }
-  .nav-item span:last-child { display: none; }
-  .nav-icon { width: auto; font-size: 15px; }
-  .nav-brand .brand-text small { display: none; }
-  .nav-foot .ver { display: none; }
+  /* 标签只保留图标，靠 active 态区分 */
+  .tab { padding: 8px 10px; }
+  .tab-text { display: none; }
+  .tab-icon { width: 17px; height: 17px; font-size: 16px; }
+  .brand-name { font-size: 13.5px; }
 
   .tiles { grid-template-columns: 1fr; }
   .main { padding: 12px 9px 24px; }

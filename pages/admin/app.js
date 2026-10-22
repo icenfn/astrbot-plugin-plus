@@ -211,7 +211,7 @@ const state = {
 };
 
 const VIEW_META = {
-  overview: { title: "概览", desc: "运行概况与接口说明" },
+  overview: { title: "概览", desc: "运行概况" },
   users: { title: "用户", desc: "管理可登录 AstrBot+ 客户端的用户" },
   agents: { title: "智能体", desc: "管理可被客户端连接的 Agent 实例" },
 };
@@ -222,7 +222,12 @@ function switchView(name) {
   if (!VIEW_META[name]) return;
   state.view = name;
 
-  $$(".nav-item").forEach((b) => b.classList.toggle("is-active", b.dataset.view === name));
+  $$(".tab").forEach((b) => {
+    const on = b.dataset.view === name;
+    b.classList.toggle("is-active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+  });
   $$(".view").forEach((v) => v.classList.toggle("is-active", v.dataset.view === name));
 
   const meta = VIEW_META[name];
@@ -375,7 +380,7 @@ async function onUserAction(act, id) {
 function agentChecksHTML(selected) {
   const picked = new Set((selected || []).map(String));
   if (!state.agents.length) {
-    return '<p class="hint">暂无智能体可选。留空表示该用户可用全部智能体。</p>';
+    return '<p class="hint">暂无智能体可选。</p>';
   }
   return state.agents
     .map(
@@ -406,6 +411,10 @@ function openCreateUser() {
        <label for="f-password">密码</label>
        <input id="f-password" type="password" placeholder="至少 6 位" autocomplete="new-password" />
      </div>
+     <div class="field">
+       <label>可用智能体</label>
+       <div class="agent-picker" id="agent-picker">${agentChecksHTML([])}</div>
+     </div>
      <p class="hint">创建成功后会返回一条快连链接，可直接填入客户端登录。</p>`,
     "创建",
     async () => {
@@ -416,7 +425,11 @@ function openCreateUser() {
       if (!password) throw new Error("请填写密码");
       if (password.length < 6) throw new Error("密码至少 6 位");
 
-      const res = (await apiPost("users/create", { email, username, password })) || {};
+      const body = { email, username, password };
+      const allowed = collectChecked();
+      if (allowed.length) body.allowed_agents = allowed;
+
+      const res = (await apiPost("users/create", body)) || {};
       drawer.close();
       toast("用户创建成功", "ok");
       await Promise.all([loadUsers(), loadStats()]);
@@ -483,7 +496,6 @@ function openEditUser(u) {
      <div class="field">
        <label>可用智能体</label>
        <div class="agent-picker" id="agent-picker">${agentChecksHTML(u.allowed_agents)}</div>
-       <p class="hint">全不勾选 = 可用全部智能体。</p>
      </div>`,
     "保存",
     async () => {
@@ -673,19 +685,11 @@ function openEditAgent(a) {
   );
 }
 
-/* ---------------------------- 主题与连接状态 ---------------------------- */
+/* ---------------------------- 主题 ---------------------------- */
 
 function applyTheme(theme) {
   const value = theme === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", value);
-}
-
-function setConn(online, label) {
-  const box = $("#conn");
-  if (!box) return;
-  box.classList.toggle("is-on", !!online);
-  box.classList.toggle("is-off", !online);
-  $("#conn-text").textContent = label;
 }
 
 /** 桥接上下文用 isDark 布尔表示主题。返回 'dark'|'light'|null。 */
@@ -704,8 +708,19 @@ async function boot() {
   bindDialog();
   bindDrawer();
 
-  $$(".nav-item").forEach((btn) => {
+  $$(".tab").forEach((btn) => {
     btn.addEventListener("click", () => switchView(btn.dataset.view));
+    btn.addEventListener("keydown", (e) => {
+      const tabs = $$(".tab");
+      const i = tabs.indexOf(btn);
+      if (e.key === "ArrowRight" && i < tabs.length - 1) {
+        tabs[i + 1].focus();
+        switchView(tabs[i + 1].dataset.view);
+      } else if (e.key === "ArrowLeft" && i > 0) {
+        tabs[i - 1].focus();
+        switchView(tabs[i - 1].dataset.view);
+      }
+    });
   });
 
   $("#btn-reload").addEventListener("click", async () => {
@@ -720,8 +735,6 @@ async function boot() {
     }
     toast("已刷新", "ok");
   });
-
-  setConn(false, "连接中");
 
   const ctx = await waitReady();
   state.ctx = ctx;
@@ -756,13 +769,11 @@ async function boot() {
   // 首屏并行拉取：概览 + 两张表（表数据供多选区复用）
   await Promise.all([loadStats(), loadUsers(), loadAgents()]);
 
-  setConn(true, "已连接");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   boot().catch((err) => {
     console.error("[AstrBot+] 初始化失败：", err);
-    setConn(false, "初始化失败");
     toast("初始化失败：" + (err.message || err), "err");
   });
 });
