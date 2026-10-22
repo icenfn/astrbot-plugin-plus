@@ -137,15 +137,17 @@ def list_bots() -> list[dict[str, Any]]:
         name = str(botname) if botname else str(platform_id)
         # botdf：机器人 128 位指纹，缺失时在这里补齐（旧机器人自动获得）。
         botdf = ensure_botdf(cfg, str(platform_id))
-        # 只暴露客户端真正用到的字段：id / name / botname / botdf。
+        # 只暴露客户端真正用到的字段：id / name / botname / botdf / remark。
         # `platform`、`enabled` 随 Agent 详情页的简化一并移除（客户端不再展示
         # 平台适配器与启用状态，服务端也就不必再传）。
+        # remark：管理端填写的备注，客户端在 Agent 详情页展示，未填时为空串。
         bots.append(
             {
                 "id": str(platform_id),
                 "name": name,
                 "botname": str(botname),
                 "botdf": botdf,
+                "remark": str(cfg.get("remark") or ""),
             }
         )
     # 稳定排序，避免每次刷新列表顺序跳动。

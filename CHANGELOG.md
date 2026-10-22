@@ -1,46 +1,12 @@
-## 未发布（main 分支）
+## v0.9.0（2026-10-23）
 
-> 版本号保持 `0.9.0` 不变，本次仅提交代码改造，不创建新 tag / release。
+> 首个正式发布版本，版本号 `0.9.0`，与客户端 [astrbot-plus](https://github.com/icenfn/astrbot-plus) `0.9.0` 配套。
 
 ### 新增
 - 🏷️ **智能体备注**：新建 / 编辑智能体新增「备注」字段（限 64 字符），管理列表在「显示名」后展示备注列，过长自动省略；对应适配器配置模板同步加入 `remark` 项，平台配置页可直接查看与修改。
 - ⏳ **登录 token 有效期配置**：新增 `token_expire_days` 配置项，默认 `30` 天，填 `0` 表示永久有效（此时签发不写入 `exp` 声明）。插件启动时读取并注入 Socket 服务端。
 - 🌐 **快连链接使用真实对外地址**：`ap://` 快连链接的主机名改为按优先级自动解析 —— 优先读取 AstrBot 系统设置「对外可达的回调接口地址」(`callback_api_base`)，其次使用新增的 `quick_link_host` 配置项，再退化为代码探测的本机对外 IPv4（UDP 出口地址，不发起外部请求），随后回落到 `listen_host`，最后兜底 `localhost`。此前固定回落到 `localhost`，导致异机客户端无法直接使用快连链接。
 - 📋 **编辑用户可查看指纹**：编辑用户弹窗新增只读的「指纹」字段，便于核对客户端身份；服务端更新接口不接受该字段，无法被篡改。
-
-### 变更
-- 🔐 **「可用智能体」白名单语义调整**：由原来的「空列表 = 允许全部」改为「只有列表内的 agent 可用，空列表 = 没有任何可用 agent」。管理端新建用户时默认全选现有智能体，取消勾选即代表该用户无可用智能体；客户端 `/api/agents` 与消息路由均按新语义过滤。
-- 🖥️ **配置项文案调整**：「Socket.io 服务端监听地址、端口」改为「IM 服务端地址、端口」，与当前 IM 服务端定位一致。
-- 🔢 **「可用智能体」列改为显示数量**：用户列表该列仅展示可用智能体的个数（`0` 表示没有任何可用智能体），不再列出智能体名称，也不再使用「全部」/`—` 等占位文案，列宽更紧凑、更易横向对比。
-
-### 优化
-- 🪟 **编辑弹窗铺满整页**：抽屉面板由右侧 `min(440px, 100%)` 固定宽度改为 `inset: 0` 全屏，内容区限宽 720px 居中以便长表单阅读；手机端不再自底部升起，统一满屏展示。
-
-### 重构
-- 🎨 **管理界面重写并迁移到官方插件 Pages 规范**：旧视图放在 `views/plus-admin/`，不是 AstrBot 插件页面规范目录，WebUI 无法识别。现按官方规范改为 `pages/admin/`（`index.html` + `style.css` + `app.js`），旧目录整体移除。界面重做为左侧导航（概览 / 用户 / 智能体）+ 右侧内容区 + 抽屉式表单，支持明暗主题与窄屏自适应。
-- 🌓 **主题跟随 WebUI**：读取 `bridge.getContext().isDark` 同步 `<html data-theme>`，并 `onContext()` 订阅主题切换，始终与 Dashboard 明暗模式一致。页面文案直接内置于模板，不引入 i18n 资源文件。
-
-### 修复
-- 🐛 **「加载失败 Failed to fetch」**：根因是插件页面运行在 WebUI 的受限 iframe（opaque origin）中，页面里用裸 `fetch` 请求相对地址会被拦截。现统一改走 `window.AstrBotPluginPage` 桥接的 `apiGet` / `apiPost`，由 Dashboard 转发并注入鉴权，不再有跨域失败。
-- 🐛 **管理 API 方法与桥接能力不兼容**：桥接只提供 GET / POST，旧后端使用 `PATCH` / `DELETE` 且把目标对象放在路径参数里，前端根本发不出来。现九条路由全部改为 **GET（查询）+ POST（写入）**，写操作目标由请求体 `id` 指定，不再使用路径参数。
-- 🐛 **桥接 endpoint 前缀缺失**：后端注册路径是 `/<plugin_name>/admin/**`，桥接会自动补插件名前缀，因此页面侧 endpoint 必须保留 `admin/` 段（如 `admin/users`），否则转发后 404。
-- 🐛 **原生 `alert` / `confirm` 在沙箱内被拦截**：改为自绘确认框与 Toast 提示，删除等破坏性操作可正常二次确认。
-
-### 优化
-- 📱 **页面 UI 响应式重做**：新增 1080px / 860px / 560px / 380px 四档断点。平板收窄侧栏并让四指标变两列；窄屏时导航转为顶部横向条（可横向滑动）；手机端表格改为横向滚动而非压缩裁切，抽屉改为自底部升起、操作按钮占满宽度；超窄屏导航仅保留图标，指标改单列。
-- 📐 **视口适配修正**：使用 `100dvh` 替代 `100vh`，避免移动端地址栏伸缩导致导航被截断；补充 `-webkit-text-size-adjust` 防止横竖屏切换时字号被放大。
-
-### 变更
-- 🗂️ **`metadata.yaml` 改用 PyYAML 解析**：`_read_plugin_version()` 的行扫描（`line.startswith("version:")`）替换为 `yaml.safe_load()` 的 `_read_metadata()`，正确支持引号、多行与嵌套结构；解析失败只记 debug 日志并回退，不阻塞插件加载。`metadata.yaml` 仍是版本号唯一来源。
-- 🧩 **管理端逻辑收敛与加固**：抽出 `_hash_password` / `_agent_configs` / `_load_platform` / `_terminate_platform` / `_sync_platform` 等辅助方法，统一 Agent 启停与热加载路径；补齐邮箱格式、邮箱唯一性（409）、密码长度（≥6）、用户名非空、`allowed_agents` 数组类型等输入校验；列表接口永不回传 `password_hash`。
-- 🧪 **新增管理 API 自测**：`tests/admin_api_test.py` 覆盖九条路由的注册前缀/方法约束与创建、更新、删除、异常分支（共 51 项断言），不依赖真实 AstrBot 与外部端口。
-
-## v0.9.0
-
-### 重构
-- 🏗️ **整体重构为「python-socketio + HTTP API」混合架构的 IM 服务端**：IM 端口（默认 `6199`）只提供 `/api/*`（REST + JWT）、`/socket.io`（实时双向）与 `/health`，插件可视化视图仅通过 AstrBot WebUI 访问，不从 IM 端口暴露，也不需要插件自身登录或管理员账号。
-
-### 新增
 - 👤 **用户管理**：新建用户（邮箱 / 用户名 / 密码，bcrypt 加盐哈希存储）、编辑资料（邮箱唯一性校验、用户名、重置密码）、禁用 / 启用、删除、查看 token 用量、设置用户可用 Agent 白名单（空列表 = 允许全部）。
 - 🔗 **快连链接（一次可见）**：新建用户成功后返回 `ap://email:password@host:port` 形式的快连链接，界面提示「只显示一次、请长按复制保存」，客户端粘贴即可免手动录入完成登录。
 - 🤖 **Agent 管理**：基于 AstrBot 平台配置创建 / 重命名 / 停用启用 / 删除 `astrbot_plus` 适配器，变更后即时热加载与摘除。
@@ -48,7 +14,29 @@
 - 🔐 **JWT 鉴权**：`POST /api/auth/login` 登录成功下发一次 Token，后续 HTTP API 通过 `Authorization: Bearer` 携带，Socket.IO 握手用同一 Token 鉴权，无效 token 直接拒绝连接。
 - 📊 **总览统计**：注册用户数、Agent 总数、今日消息数、在线连接数。
 
+### 变更
+- 🔐 **「可用智能体」白名单语义调整**：由原来的「空列表 = 允许全部」改为「只有列表内的 agent 可用，空列表 = 没有任何可用 agent」。管理端新建用户时默认全选现有智能体，取消勾选即代表该用户无可用智能体；客户端 `/api/agents` 与消息路由均按新语义过滤。
+- 🖥️ **配置项文案调整**：「Socket.io 服务端监听地址、端口」改为「IM 服务端地址、端口」，与当前 IM 服务端定位一致。
+- 🔢 **「可用智能体」列改为显示数量**：用户列表该列仅展示可用智能体的个数（`0` 表示没有任何可用智能体），不再列出智能体名称，也不再使用「全部」/`—` 等占位文案，列宽更紧凑、更易横向对比。
+- 🗂️ **`metadata.yaml` 改用 PyYAML 解析**：`_read_plugin_version()` 的行扫描（`line.startswith("version:")`）替换为 `yaml.safe_load()` 的 `_read_metadata()`，正确支持引号、多行与嵌套结构；解析失败只记 debug 日志并回退，不阻塞插件加载。`metadata.yaml` 仍是版本号唯一来源。
+- 🧩 **管理端逻辑收敛与加固**：抽出 `_hash_password` / `_agent_configs` / `_load_platform` / `_terminate_platform` / `_sync_platform` 等辅助方法，统一 Agent 启停与热加载路径；补齐邮箱格式、邮箱唯一性（409）、密码长度（≥6）、用户名非空、`allowed_agents` 数组类型等输入校验；列表接口永不回传 `password_hash`。
+- 🧪 **新增管理 API 自测**：`tests/admin_api_test.py` 覆盖九条路由的注册前缀/方法约束与创建、更新、删除、异常分支（共 51 项断言），不依赖真实 AstrBot 与外部端口。
+
+### 优化
+- 🪟 **编辑弹窗铺满整页**：抽屉面板由右侧 `min(440px, 100%)` 固定宽度改为 `inset: 0` 全屏，内容区限宽 720px 居中以便长表单阅读；手机端不再自底部升起，统一满屏展示。
+- 📱 **页面 UI 响应式重做**：新增 1080px / 860px / 560px / 380px 四档断点。平板收窄侧栏并让四指标变两列；窄屏时导航转为顶部横向条（可横向滑动）；手机端表格改为横向滚动而非压缩裁切，抽屉改为自底部升起、操作按钮占满宽度；超窄屏导航仅保留图标，指标改单列。
+- 📐 **视口适配修正**：使用 `100dvh` 替代 `100vh`，避免移动端地址栏伸缩导致导航被截断；补充 `-webkit-text-size-adjust` 防止横竖屏切换时字号被放大。
+
+### 重构
+- 🎨 **管理界面重写并迁移到官方插件 Pages 规范**：旧视图放在 `views/plus-admin/`，不是 AstrBot 插件页面规范目录，WebUI 无法识别。现按官方规范改为 `pages/admin/`（`index.html` + `style.css` + `app.js`），旧目录整体移除。界面重做为左侧导航（概览 / 用户 / 智能体）+ 右侧内容区 + 抽屉式表单，支持明暗主题与窄屏自适应。
+- 🌓 **主题跟随 WebUI**：读取 `bridge.getContext().isDark` 同步 `<html data-theme>`，并 `onContext()` 订阅主题切换，始终与 Dashboard 明暗模式一致。页面文案直接内置于模板，不引入 i18n 资源文件。
+- 🏗️ **整体重构为「python-socketio + HTTP API」混合架构的 IM 服务端**：IM 端口（默认 `6199`）只提供 `/api/*`（REST + JWT）、`/socket.io`（实时双向）与 `/health`，插件可视化视图仅通过 AstrBot WebUI 访问，不从 IM 端口暴露，也不需要插件自身登录或管理员账号。
+
 ### 修复
+- 🐛 **「加载失败 Failed to fetch」**：根因是插件页面运行在 WebUI 的受限 iframe（opaque origin）中，页面里用裸 `fetch` 请求相对地址会被拦截。现统一改走 `window.AstrBotPluginPage` 桥接的 `apiGet` / `apiPost`，由 Dashboard 转发并注入鉴权，不再有跨域失败。
+- 🐛 **管理 API 方法与桥接能力不兼容**：桥接只提供 GET / POST，旧后端使用 `PATCH` / `DELETE` 且把目标对象放在路径参数里，前端根本发不出来。现九条路由全部改为 **GET（查询）+ POST（写入）**，写操作目标由请求体 `id` 指定，不再使用路径参数。
+- 🐛 **桥接 endpoint 前缀缺失**：后端注册路径是 `/<plugin_name>/admin/**`，桥接会自动补插件名前缀，因此页面侧 endpoint 必须保留 `admin/` 段（如 `admin/users`），否则转发后 404。
+- 🐛 **原生 `alert` / `confirm` 在沙箱内被拦截**：改为自绘确认框与 Toast 提示，删除等破坏性操作可正常二次确认。
 - 🐛 **管理 API 注册签名错误**：原先以 `register_web_api(method=..., path=..., handler=...)` 关键字方式调用，与 AstrBot 实际签名 `register_web_api(route, view_handler, methods, desc)` 不符，导致 WebUI 管理接口从未注册成功、用户与 Agent 管理完全不可用。现按真实签名注册，并保留旧版关键字签名兜底。
 - 🐛 **路径参数路由不匹配**：路由占位符由 `{id}` 改为 AstrBot 识别的 `<id>`，否则 `PATCH` / `DELETE` 必然匹配失败。
 - 🐛 **请求体与错误响应**：`await request.json` 缺少调用括号、`error_response(message=, status=)` 参数名错误，均已修正为 `await request.json()` 与 `error_response(msg, status_code=...)`。

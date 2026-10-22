@@ -457,6 +457,8 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
                     "id": bid,
                     "name": b.get("name") or bid,
                     "botdf": b.get("botdf") or "",
+                    # 管理端填写的备注，供客户端在 Agent 详情页展示
+                    "remark": b.get("remark") or "",
                     "enabled": True,
                 }
             )
