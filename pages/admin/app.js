@@ -93,6 +93,94 @@ function userFingerprint(user) {
   return raw ? String(raw) : "—";
 }
 
+/** 头像选择器 HTML：头像为空时表示使用服务端内置默认头像。 */
+function avatarPickerHTML(current, type) {
+  const src = String(current || "");
+  const hasImg = !!src;
+  const bg = hasImg ? ` style="background-image:url('${esc(src)}')"` : "";
+  const label = type === "agent" ? "默认机器人头像" : "默认用户头像";
+  return `<div class="avatar-picker">
+    <div class="avatar-preview${hasImg ? " has-img" : ""}" id="f-avatar-preview"${bg}><span>${hasImg ? "" : esc(label)}</span></div>
+    <div class="avatar-actions">
+      <input type="file" id="f-avatar-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+      <button type="button" class="btn sm" id="f-avatar-pick">选择图片</button>
+      <button type="button" class="btn sm ghost" id="f-avatar-clear">恢复默认</button>
+    </div>
+    <input type="hidden" id="f-avatar" value="${esc(src)}" />
+    <p class="hint">支持 PNG / JPG / WebP，建议正方形；图片会被压缩到 256px 以内后保存。</p>
+  </div>`;
+}
+
+/** 读取用户选择的图片并压缩为 data-URI（最长边 256px）。 */
+function readAvatarFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("没有选择文件"));
+    if (!/^image\//.test(file.type)) return reject(new Error("请选择图片文件"));
+    if (file.size > 8 * 1024 * 1024) return reject(new Error("图片过大（需小于 8MB）"));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("图片解析失败"));
+      img.onload = () => {
+        const MAX = 256;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        try {
+          resolve(canvas.toDataURL("image/png"));
+        } catch (e) {
+          reject(new Error("图片转换失败"));
+        }
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/** 绑定头像选择器交互（drawer.open 之后调用）。 */
+function bindAvatarPicker() {
+  const fileInput = $("#f-avatar-file");
+  const pickBtn = $("#f-avatar-pick");
+  const clearBtn = $("#f-avatar-clear");
+  const hidden = $("#f-avatar");
+  const preview = $("#f-avatar-preview");
+  if (!fileInput || !hidden || !preview) return;
+
+  const render = (src) => {
+    hidden.value = src || "";
+    if (src) {
+      preview.style.backgroundImage = `url('${src}')`;
+      preview.classList.add("has-img");
+      preview.innerHTML = "";
+    } else {
+      preview.style.backgroundImage = "";
+      preview.classList.remove("has-img");
+      preview.innerHTML = `<span>默认头像</span>`;
+    }
+  };
+
+  if (pickBtn) pickBtn.addEventListener("click", () => fileInput.click());
+  if (clearBtn) clearBtn.addEventListener("click", () => render(""));
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readAvatarFile(file);
+      render(dataUrl);
+    } catch (err) {
+      toast(err.message || String(err), "err");
+    } finally {
+      fileInput.value = "";
+    }
+  });
+}
+
 /** 秒级时间戳 → 本地可读时间 */
 function fmtTime(ts) {
   const n = Number(ts) || 0;
@@ -170,6 +258,8 @@ const drawer = {
     $("#drawer-submit").textContent = submitLabel || "确定";
     $("#drawer").hidden = false;
     this.submit = onSubmit;
+    // 抽屉内容为同步 innerHTML 渲染，创建好后立刻可绑定头像选择器。
+    bindAvatarPicker();
     const first = $("#drawer-body input, #drawer-body select");
     if (first) first.focus();
   },
@@ -417,6 +507,15 @@ function openCreateUser() {
        <input id="f-password" type="password" placeholder="至少 6 位" autocomplete="new-password" />
      </div>
      <div class="field">
+       <label for="f-ap_id">ap_id（可选）</label>
+       <input id="f-ap_id" type="text" placeholder="留空自动生成，如 ap_7f3k9q2m" autocomplete="off" />
+       <p class="hint">用户对外唯一标识（类似 wxid），格式 ap_ 加 6~15 位字母、数字或下划线。</p>
+     </div>
+     <div class="field">
+       <label>用户头像</label>
+       ${avatarPickerHTML("", "user")}
+     </div>
+     <div class="field">
        <label>可用智能体</label>
        <div class="agent-picker" id="agent-picker">${agentChecksHTML([], true)}</div>
        <p class="hint">默认全选；取消勾选后该用户将没有可用智能体。</p>
@@ -431,9 +530,13 @@ function openCreateUser() {
       if (!password) throw new Error("请填写密码");
       if (password.length < 6) throw new Error("密码至少 6 位");
 
+      const apId = ($("#f-ap_id").value || "").trim();
+      const avatar = ($("#f-avatar").value || "").trim();
       const body = { email, username, password };
       // 始终提交白名单：空数组表示「没有可用智能体」。
       body.allowed_agents = collectChecked();
+      if (apId) body.ap_id = apId;
+      if (avatar) body.avatar = avatar;
 
       const res = (await apiPost("users/create", body)) || {};
       drawer.close();
@@ -501,8 +604,17 @@ function openEditUser(u) {
        <input id="f-username" type="text" value="${esc(u.username)}" autocomplete="off" />
      </div>
      <div class="field">
+       <label for="f-ap_id">ap_id</label>
+       <input id="f-ap_id" type="text" value="${esc(u.ap_id || "")}" placeholder="ap_xxxxxx" autocomplete="off" />
+       <p class="hint">用户对外唯一标识（类似 wxid），可修改；格式 ap_ 加 6~15 位字母、数字或下划线。</p>
+     </div>
+     <div class="field">
        <label for="f-password">重置密码</label>
        <input id="f-password" type="password" placeholder="留空则不修改" autocomplete="new-password" />
+     </div>
+     <div class="field">
+       <label>用户头像</label>
+       ${avatarPickerHTML(u.avatar || "", "user")}
      </div>
      <div class="field">
        <label>可用智能体</label>
@@ -517,7 +629,13 @@ function openEditUser(u) {
       if (!username) throw new Error("用户名不能为空");
       if (password && password.length < 6) throw new Error("密码至少 6 位");
 
-      const body = { id: Number(u.id), email, username, allowed_agents: collectChecked() };
+      const apId = ($("#f-ap_id").value || "").trim();
+      const avatar = ($("#f-avatar").value || "").trim();
+      if (!apId) throw new Error("ap_id 不能为空");
+      const body = {
+        id: Number(u.id), email, username, allowed_agents: collectChecked(),
+        ap_id: apId, avatar,
+      };
       if (password) body.password = password;
 
       await apiPost("users/update", body);
@@ -650,6 +768,10 @@ function openCreateAgent() {
        <label for="f-remark">备注（可选）</label>
        <input id="f-remark" type="text" placeholder="用于区分多个智能体，例如：客服专用" autocomplete="off" />
      </div>
+     <div class="field">
+       <label>智能体头像</label>
+       ${avatarPickerHTML("", "agent")}
+     </div>
      <p class="hint">创建后会在平台配置中追加一个 astrbot_plus 适配器并立即热加载，同时生成 32 位会话指纹。</p>`,
     "创建",
     async () => {
@@ -658,9 +780,11 @@ function openCreateAgent() {
       if (!botname) throw new Error("请填写显示名");
 
       const remark = $("#f-remark").value.trim();
+      const avatar = ($("#f-avatar").value || "").trim();
       const body = { botname };
       if (id) body.id = id;
       if (remark) body.remark = remark;
+      if (avatar) body.avatar = avatar;
 
       await apiPost("agents/create", body);
       drawer.close();
@@ -687,6 +811,10 @@ function openEditAgent(a) {
        <input id="f-remark" type="text" value="${esc(a.remark || "")}" placeholder="用于区分多个智能体" autocomplete="off" />
      </div>
      <div class="field">
+       <label>智能体头像</label>
+       ${avatarPickerHTML(a.avatar || "", "agent")}
+     </div>
+     <div class="field">
        <label class="check">
          <input type="checkbox" id="f-enable" ${on ? "checked" : ""} />
          <span>启用该智能体</span>
@@ -699,8 +827,9 @@ function openEditAgent(a) {
       if (!botname) throw new Error("显示名不能为空");
       const enable = $("#f-enable").checked;
       const remark = $("#f-remark").value.trim();
+      const avatar = ($("#f-avatar").value || "").trim();
 
-      await apiPost("agents/update", { id: a.id, botname, enable, remark });
+      await apiPost("agents/update", { id: a.id, botname, enable, remark, avatar });
       drawer.close();
       toast("已保存", "ok");
       await Promise.all([loadAgents(), loadStats()]);

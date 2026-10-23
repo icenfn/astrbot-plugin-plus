@@ -260,6 +260,21 @@ td.error { color: var(--danger); }
 
 .hint { font-size: 11.5px; color: var(--text-dim); margin: 8px 0 0; line-height: 1.6; }
 
+/* ---------- 头像选择器（用户 / 智能体） ---------- */
+.avatar-picker { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.avatar-preview {
+  width: 64px; height: 64px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; text-align: center;
+  background-color: var(--surface-2, rgba(127,140,150,.14));
+  background-size: cover; background-position: center;
+  border: 1px solid var(--border, rgba(127,140,150,.28));
+  overflow: hidden;
+}
+.avatar-preview span { font-size: 10.5px; color: var(--text-dim); line-height: 1.25; padding: 0 4px; }
+.avatar-preview.has-img span { display: none; }
+.avatar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.avatar-actions .btn.sm { padding: 6px 12px; font-size: 12.5px; }
+
 /* 快连链接 */
 .quick {
   margin-top: 14px; padding: 12px 13px; border-radius: 10px;

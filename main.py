@@ -543,8 +543,18 @@ class AstrBotPlusPlugin(Star):
             if isinstance(allowed_raw, list)
             else "[]"
         )
+        # 头像（data-URI 或图片 URL），空串表示使用内置默认头像
+        avatar = str(body.get("avatar") or "").strip()[:200000]
+        # ap_id（类 wxid，唯一）；未填则自动生成
+        ap_id = db.normalize_ap_id(body.get("ap_id"))
+        if ap_id is None:
+            return self._err("ap_id 格式不正确，应为 ap_ 加 6~15 位字母、数字或下划线")
+        if ap_id and db.admin_find_user_by_ap_id(ap_id) is not None:
+            return self._err("该 ap_id 已被使用", 409)
         try:
-            user = db.admin_create_user(email, username, pw_hash, allowed_agents)
+            user = db.admin_create_user(
+                email, username, pw_hash, allowed_agents, avatar, ap_id or None
+            )
         except Exception as exc:  # noqa: BLE001
             return self._err(f"创建用户失败：{exc}")
         if isinstance(user, dict):
@@ -589,6 +599,21 @@ class AstrBotPlusPlugin(Star):
             if not isinstance(ids, list):
                 return self._err("allowed_agents 必须是数组")
             fields["allowed_agents"] = db.dumps_allowed_agents([str(x) for x in ids])
+        if "avatar" in body:
+            # 空串 = 清除自定义头像，回落内置默认头像
+            fields["avatar"] = str(body.get("avatar") or "").strip()[:200000]
+        if "ap_id" in body:
+            ap_id = db.normalize_ap_id(body.get("ap_id"))
+            if ap_id is None:
+                return self._err(
+                    "ap_id 格式不正确，应为 ap_ 加 6~15 位字母、数字或下划线"
+                )
+            if not ap_id:
+                return self._err("ap_id 不能为空")
+            exists = db.admin_find_user_by_ap_id(ap_id)
+            if exists is not None and int(exists["id"]) != uid:
+                return self._err("该 ap_id 已被其他用户使用", 409)
+            fields["ap_id"] = ap_id
 
         if not fields:
             return self._ok({"updated": 0})
@@ -615,6 +640,7 @@ class AstrBotPlusPlugin(Star):
                     "enable": bool(p.get("enable", True)),
                     "botdf": p.get("botdf") or "",
                     "remark": p.get("remark") or "",
+                    "avatar": p.get("avatar") or "",
                 }
                 for p in self._agent_configs()
             ]
@@ -638,6 +664,8 @@ class AstrBotPlusPlugin(Star):
             "botname": botname,
             # 备注：自由文本，仅用于平台列表展示区分（限 64 字符）
             "remark": str(body.get("remark") or "").strip()[:64],
+            # 头像（data-URI 或图片 URL），空串表示使用内置默认头像
+            "avatar": str(body.get("avatar") or "").strip()[:200000],
             # 32 位数字指纹，区分不同 Agent 的会话/数据
             "botdf": hashlib.md5(
                 f"{self._adapter_name()}:{bot_id}".encode("utf-8")
@@ -666,6 +694,8 @@ class AstrBotPlusPlugin(Star):
                 cfg["enable"] = bool(body.get("enable"))
             if "remark" in body:
                 cfg["remark"] = str(body.get("remark") or "").strip()[:64]
+            if "avatar" in body:
+                cfg["avatar"] = str(body.get("avatar") or "").strip()[:200000]
             await self._save_config()
             await self._sync_platform(cfg)
             self._notify_bots_changed()

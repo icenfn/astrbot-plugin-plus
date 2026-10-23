@@ -148,6 +148,8 @@ def list_bots() -> list[dict[str, Any]]:
                 "botname": str(botname),
                 "botdf": botdf,
                 "remark": str(cfg.get("remark") or ""),
+                # 头像（data-URI / URL），空串表示使用内置默认头像
+                "avatar": str(cfg.get("avatar") or ""),
             }
         )
     # 稳定排序，避免每次刷新列表顺序跳动。

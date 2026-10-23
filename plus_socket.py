@@ -411,6 +411,7 @@ class PlusSocketServer:
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_get("/api/users", self._api_users)
         app.router.add_get("/api/messages", self._api_messages)
+        app.router.add_get("/api/avatar/default", self._api_default_avatar)
 
     @staticmethod
     def _json(data: Any, status: int = 200) -> Any:
@@ -438,6 +439,19 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
 <p style="color:#8fa3b5">REST: /api/* · Socket.IO: /socket.io · Health: /health</p>
 </div></body></html>"""
         return web.Response(text=page, content_type="text/html")
+
+    async def _api_default_avatar(self, request: Any) -> Any:
+        """内置默认头像：?type=user|agent；未指定时返回用户默认图。"""
+        kind = (request.query.get("type") or "user").lower()
+        name = (
+            "default_agent_avatar.png" if kind == "agent" else "default_user_avatar.png"
+        )
+        path = Path(__file__).resolve().parent / "assets" / name
+        if not path.exists():
+            return web.Response(status=404, text="avatar not found")
+        return web.FileResponse(
+            path, headers={"Cache-Control": "public, max-age=86400"}
+        )
 
     async def _api_login(self, request: Any) -> Any:
         try:
@@ -472,6 +486,8 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
                         "email": user.email,
                         "username": user.username,
                         "df": user.df,
+                        "avatar": getattr(user, "avatar", "") or "",
+                        "ap_id": getattr(user, "ap_id", "") or "",
                     },
                 }
             )
@@ -495,6 +511,8 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
                     "botdf": b.get("botdf") or "",
                     # 管理端填写的备注，供客户端在 Agent 详情页展示
                     "remark": b.get("remark") or "",
+                    # 头像（data-URI / URL），空串表示使用内置默认头像
+                    "avatar": b.get("avatar") or "",
                     "enabled": True,
                 }
             )

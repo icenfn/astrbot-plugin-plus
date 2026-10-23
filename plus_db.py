@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import json
+import re
+import string
 import time
 import uuid
 from pathlib import Path
@@ -45,6 +47,8 @@ class User(SQLModel, table=True):
     create_at: float = 0.0
     status: int = 1  # 1=正常 0=禁用
     allowed_agents: str = "[]"  # JSON array of bot id；"[]" = 无可用 agent
+    avatar: str = ""  # 头像：data-URI 或图片 URL；空 = 内置默认头像
+    ap_id: str = ""  # 对外唯一 ID（类 wxid）：ap_ + [A-Za-z0-9_]{6,15}
 
 
 class Message(SQLModel, table=True):
@@ -149,6 +153,8 @@ def user_public(u: User) -> dict[str, Any]:
         "email": u.email,
         "username": u.username,
         "df": u.df,
+        "avatar": getattr(u, "avatar", "") or "",
+        "ap_id": getattr(u, "ap_id", "") or "",
     }
 
 
@@ -189,7 +195,9 @@ def admin_ensure_schema() -> None:
                 df TEXT,
                 create_at REAL,
                 status INTEGER DEFAULT 1,
-                allowed_agents TEXT DEFAULT '[]'
+                allowed_agents TEXT DEFAULT '[]',
+                avatar TEXT DEFAULT '',
+                ap_id TEXT
             );
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,6 +220,72 @@ def admin_ensure_schema() -> None:
         conn.commit()
     finally:
         conn.close()
+    _migrate_user_columns()
+
+
+def _migrate_user_columns() -> None:
+    """老库补 `avatar` / `ap_id` 列，并给历史用户补发 ap_id（幂等）。"""
+    conn = _sqlite()
+    try:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+        if "avatar" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
+        if "ap_id" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN ap_id TEXT")
+        conn.commit()
+        rows = conn.execute(
+            "SELECT id FROM users WHERE ap_id IS NULL OR ap_id = ''"
+        ).fetchall()
+        for r in rows:
+            conn.execute(
+                "UPDATE users SET ap_id=? WHERE id=?",
+                (generate_ap_id(conn), r["id"]),
+            )
+        if rows:
+            conn.commit()
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_ap_id ON users(ap_id)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+AP_ID_ALPHABET = string.ascii_letters + string.digits + "_"
+
+
+def generate_ap_id(conn: sqlite3.Connection | None = None, length: int = 10) -> str:
+    """生成唯一的 ap_id：`ap_` + 6~15 位 [A-Za-z0-9_]。"""
+    import secrets
+
+    length = max(6, min(15, int(length or 10)))
+    for _ in range(200):
+        candidate = "ap_" + "".join(secrets.choice(AP_ID_ALPHABET) for _ in range(length))
+        if conn is None:
+            return candidate
+        hit = conn.execute(
+            "SELECT 1 FROM users WHERE ap_id=? LIMIT 1", (candidate,)
+        ).fetchone()
+        if not hit:
+            return candidate
+    # 极端兜底：加时间戳后缀
+    return f"ap_{int(time.time() * 1000) % 10**12:012d}"[:18]
+
+
+AP_ID_PATTERN = re.compile(r"^ap_[A-Za-z0-9_]{6,15}$")
+
+
+def normalize_ap_id(value: Any) -> str | None:
+    """校验 ap_id 格式：`ap_` + 6~15 位 [A-Za-z0-9_]。
+
+    返回规范化后的字符串；空值返回 ""；格式非法返回 None。
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if not AP_ID_PATTERN.match(raw):
+        return None
+    return raw
 
 
 def admin_list_users() -> list[dict[str, Any]]:
@@ -244,17 +318,38 @@ def admin_find_user_by_email(email: str) -> dict[str, Any] | None:
         conn.close()
 
 
+def admin_find_user_by_ap_id(ap_id: str) -> dict[str, Any] | None:
+    """按 ap_id 查用户（管理端唯一性校验）。"""
+    conn = _sqlite()
+    try:
+        r = conn.execute("SELECT * FROM users WHERE ap_id=?", (ap_id,)).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
+
+
 def admin_create_user(
-    email: str, username: str, password_hash: str, allowed_agents: str = "[]"
+    email: str,
+    username: str,
+    password_hash: str,
+    allowed_agents: str = "[]",
+    avatar: str = "",
+    ap_id: str | None = None,
 ) -> dict[str, Any]:
     now = time.time()
     df = new_user_df()
     conn = _sqlite()
     try:
+        # ap_id 唯一：未指定或冲突时自动生成
+        final_ap_id = (ap_id or "").strip() or generate_ap_id(conn)
+        if conn.execute(
+            "SELECT 1 FROM users WHERE ap_id=? LIMIT 1", (final_ap_id,)
+        ).fetchone():
+            final_ap_id = generate_ap_id(conn)
         cur = conn.execute(
-            "INSERT INTO users(email,username,password_hash,df,create_at,status,allowed_agents)"
-            " VALUES(?,?,?,?,?,1,?)",
-            (email, username, password_hash, df, now, allowed_agents),
+            "INSERT INTO users(email,username,password_hash,df,create_at,status,allowed_agents,avatar,ap_id)"
+            " VALUES(?,?,?,?,?,1,?,?,?)",
+            (email, username, password_hash, df, now, allowed_agents, avatar, final_ap_id),
         )
         conn.commit()
         return {
@@ -265,13 +360,23 @@ def admin_create_user(
             "create_at": now,
             "status": 1,
             "allowed_agents": allowed_agents,
+            "avatar": avatar,
+            "ap_id": final_ap_id,
         }
     finally:
         conn.close()
 
 
 def admin_update_user(uid: int, fields: dict[str, Any]) -> None:
-    allowed = {"email", "username", "password_hash", "status", "allowed_agents"}
+    allowed = {
+        "email",
+        "username",
+        "password_hash",
+        "status",
+        "allowed_agents",
+        "avatar",
+        "ap_id",
+    }
     sets = [f"{k}=?" for k in fields if k in allowed]
     if not sets:
         return
@@ -319,11 +424,20 @@ def admin_token_usage(uid: int) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# token 用量（近似）
+# token 用量
 # --------------------------------------------------------------------------- #
-async def bump_token_usage(user_id: int, chars: int) -> None:
-    """按回复字符数近似累加 token 用量（拿不到精确 token 数时的兜底）。"""
-    if chars <= 0:
+async def add_token_usage(user_id: int, tokens: int) -> None:
+    """累加用户真实 token 用量（来自 LLM 响应的 usage 统计）。
+
+    旧实现按「回复字符数」累加，既漏掉 prompt 侧的输入 token，也漏掉工具调用
+    与多轮内部请求，导致 AstrBot 面板已统计到几千时插件里只有十几个。这里改为
+    直接接收调用方给出的真实 token 数。
+    """
+    try:
+        tokens = int(tokens or 0)
+    except (TypeError, ValueError):
+        return
+    if tokens <= 0:
         return
     async with session() as s:
         from sqlmodel import select
@@ -331,9 +445,13 @@ async def bump_token_usage(user_id: int, chars: int) -> None:
         row = (await s.exec(select(TokenUsage).where(TokenUsage.user_id == user_id))).first()
         now = time.time()
         if row is None:
-            row = TokenUsage(user_id=user_id, total_tokens=chars, updated_at=now)
-            s.add(row)
+            s.add(TokenUsage(user_id=user_id, total_tokens=tokens, updated_at=now))
         else:
-            row.total_tokens = (row.total_tokens or 0) + chars
+            row.total_tokens = int(row.total_tokens or 0) + tokens
             row.updated_at = now
         await s.commit()
+
+
+# 兼容旧调用名：仍然接收「token 数」，不再做字符估算。
+async def bump_token_usage(user_id: int, tokens: int) -> None:
+    await add_token_usage(user_id, tokens)
