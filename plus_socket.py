@@ -866,7 +866,20 @@ display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0
                             )
                         )
                         await s.commit()
-                    await db.bump_token_usage(user_id, len(full))
+                    # token 用量：优先使用 LLM 返回的真实 usage，缺省时不再按字符数估算
+                    usage = meta.get("usage") or {}
+                    tokens = 0
+                    if isinstance(usage, dict):
+                        tokens = int(
+                            usage.get("total")
+                            or usage.get("total_tokens")
+                            or (int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0))
+                            or 0
+                        )
+                    if not tokens:
+                        tokens = int(meta.get("tokenUsage") or meta.get("tokens") or 0)
+                    if tokens > 0:
+                        await db.add_token_usage(user_id, tokens)
                     await self.sio.emit(
                         "chat:done",
                         {"reqId": req_id, "text": full, "sessionId": session_id},

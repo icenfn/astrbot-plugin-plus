@@ -93,21 +93,29 @@ function userFingerprint(user) {
   return raw ? String(raw) : "—";
 }
 
+/** 内置默认头像（与插件 assets/ 下图片一致，base64 内联，无需额外请求）。 */
+const DEFAULT_USER_AVATAR =
+  "data:image/png;base64,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";
+const DEFAULT_AGENT_AVATAR =
+  "data:image/png;base64,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";
+
+/** 按类型取默认头像 data-URI。 */
+function defaultAvatarOf(type) {
+  return type === "agent" ? DEFAULT_AGENT_AVATAR : DEFAULT_USER_AVATAR;
+}
+
 /** 头像选择器 HTML：头像为空时表示使用服务端内置默认头像。 */
 function avatarPickerHTML(current, type) {
-  const src = String(current || "");
-  const hasImg = !!src;
-  const bg = hasImg ? ` style="background-image:url('${esc(src)}')"` : "";
-  const label = type === "agent" ? "默认机器人头像" : "默认用户头像";
+  const src = String(current || "").trim() || defaultAvatarOf(type);
   return `<div class="avatar-picker">
-    <div class="avatar-preview${hasImg ? " has-img" : ""}" id="f-avatar-preview"${bg}><span>${hasImg ? "" : esc(label)}</span></div>
+    <div class="avatar-preview" id="f-avatar-preview" style="background-image:url('${src}')"></div>
     <div class="avatar-actions">
       <input type="file" id="f-avatar-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
       <button type="button" class="btn sm" id="f-avatar-pick">选择图片</button>
       <button type="button" class="btn sm ghost" id="f-avatar-clear">恢复默认</button>
     </div>
-    <input type="hidden" id="f-avatar" value="${esc(src)}" />
-    <p class="hint">支持 PNG / JPG / WebP，建议正方形；图片会被压缩到 256px 以内后保存。</p>
+    <input type="hidden" id="f-avatar" value="${esc(String(current || ""))}" data-type="${type}" />
+    <p class="hint">留空则使用内置默认头像；支持 PNG / JPG / WebP，图片会压缩到 256px 以内后保存。</p>
   </div>`;
 }
 
@@ -146,33 +154,23 @@ function readAvatarFile(file) {
 /** 绑定头像选择器交互（drawer.open 之后调用）。 */
 function bindAvatarPicker() {
   const fileInput = $("#f-avatar-file");
-  const pickBtn = $("#f-avatar-pick");
-  const clearBtn = $("#f-avatar-clear");
   const hidden = $("#f-avatar");
   const preview = $("#f-avatar-preview");
   if (!fileInput || !hidden || !preview) return;
 
+  const fallback = defaultAvatarOf(hidden.dataset.type || "user");
   const render = (src) => {
     hidden.value = src || "";
-    if (src) {
-      preview.style.backgroundImage = `url('${src}')`;
-      preview.classList.add("has-img");
-      preview.innerHTML = "";
-    } else {
-      preview.style.backgroundImage = "";
-      preview.classList.remove("has-img");
-      preview.innerHTML = `<span>默认头像</span>`;
-    }
+    preview.style.backgroundImage = `url('${src || fallback}')`;
   };
 
-  if (pickBtn) pickBtn.addEventListener("click", () => fileInput.click());
-  if (clearBtn) clearBtn.addEventListener("click", () => render(""));
+  $("#f-avatar-pick")?.addEventListener("click", () => fileInput.click());
+  $("#f-avatar-clear")?.addEventListener("click", () => render(""));
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
     try {
-      const dataUrl = await readAvatarFile(file);
-      render(dataUrl);
+      render(await readAvatarFile(file));
     } catch (err) {
       toast(err.message || String(err), "err");
     } finally {
